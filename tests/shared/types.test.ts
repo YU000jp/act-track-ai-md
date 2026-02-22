@@ -11,7 +11,7 @@ import {
 describe("shared types", () => {
   it("defines all activity categories", () => {
     const vals: ActivityCategory[] = ["productive", "distraction", "neutral", "unknown"];
-    expect(vals).toEqual(ACTIVITY_CATEGORIES);
+    expect(vals).toEqual([...ACTIVITY_CATEGORIES]);
   });
 
   it("ActivitySample has required fields", () => {

@@ -1,10 +1,11 @@
 import type { DailySummary, ActivityCategory } from "../shared/types";
 import type { Datastores } from "./db";
 
+type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type SummarizerDeps = {
   datastores: Datastores;
   apiKey: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchFn;
 };
 
 export function createSummarizer(deps: SummarizerDeps) {
@@ -78,7 +79,7 @@ ${appList || "No apps tracked"}
 Write a brief, encouraging 2-3 sentence summary in Indonesian. Focus on what went well and one area to improve.`;
 }
 
-async function callGeminiForSummary(prompt: string, apiKey: string, fetcher: typeof fetch): Promise<string> {
+async function callGeminiForSummary(prompt: string, apiKey: string, fetcher: FetchFn): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
   const response = await fetcher(url, {
