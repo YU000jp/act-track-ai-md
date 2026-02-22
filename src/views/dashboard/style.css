@@ -1,0 +1,278 @@
+:root {
+  --bg: #0f0f1a;
+  --surface: #1e1e3a;
+  --surface-soft: #252549;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --border: #2f315f;
+  --productive: #4ade80;
+  --distraction: #f87171;
+  --neutral: #94a3b8;
+  --focus: #66d9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Nunito Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 700px at 90% -20%, #2d3566 0%, transparent 60%),
+    radial-gradient(1000px 600px at -20% 110%, #21214a 0%, transparent 60%),
+    var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.dashboard {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.header img {
+  width: 22px;
+  height: 22px;
+}
+
+.title {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+#tab-bar {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 88%, #101025);
+}
+
+.tab-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.tab-btn.active {
+  color: var(--text);
+  background: linear-gradient(180deg, #3a3a70, #2a2a55);
+}
+
+.panel {
+  display: none;
+  margin-top: 16px;
+}
+
+.panel.active {
+  display: block;
+  animation: panel-in 160ms ease-out;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stats-grid,
+.stats-layout {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-card,
+.card {
+  background: linear-gradient(180deg, var(--surface) 0%, #181833 100%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.stat-card.productive,
+.app-dot.productive,
+.legend-dot.productive {
+  color: var(--productive);
+  background-color: color-mix(in oklab, var(--productive) 18%, transparent);
+}
+
+.stat-card.distraction,
+.app-dot.distraction,
+.legend-dot.distraction {
+  color: var(--distraction);
+  background-color: color-mix(in oklab, var(--distraction) 16%, transparent);
+}
+
+.stat-card.neutral,
+.app-dot.neutral,
+.legend-dot.neutral {
+  color: var(--neutral);
+  background-color: color-mix(in oklab, var(--neutral) 22%, transparent);
+}
+
+.stat-label {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.stat-value {
+  margin-top: 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.stat-pct {
+  margin-top: 2px;
+  font-size: 0.84rem;
+}
+
+.app-list,
+.trend-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.app-item,
+.trend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  border-top: 1px solid #2b2e59;
+  padding: 10px 0;
+}
+
+.app-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.app-name {
+  flex: 1;
+}
+
+.app-duration,
+.trend-item span:last-child {
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.form-group.checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+input {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgb(102 217 255 / 0.15);
+}
+
+.btn-save {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 700;
+  color: #061216;
+  background: linear-gradient(120deg, #66d9ff, #4ade80);
+  cursor: pointer;
+}
+
+.charts-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.bar-chart {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  height: 160px;
+}
+
+.bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bar-fill {
+  width: 100%;
+  border-radius: 8px 8px 3px 3px;
+  background: linear-gradient(180deg, #66d9ff, #4ade80);
+}
+
+.bar-label {
+  color: var(--text-dim);
+  font-size: 0.74rem;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  padding: 10px 0;
+}
+
+@media (max-width: 820px) {
+  .stats-grid,
+  .stats-layout,
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #tab-bar {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tab-btn {
+    text-align: center;
+  }
+}
