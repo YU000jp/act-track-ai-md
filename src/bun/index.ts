@@ -1,0 +1,2 @@
+export function startApp(): void {
+}

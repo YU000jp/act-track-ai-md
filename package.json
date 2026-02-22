@@ -1,0 +1,13 @@
+{
+  "name": "act-track-ai",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "electrobun": "^1.13.1"
+  }
+}
