@@ -1,6 +1,6 @@
-# ActTrack AI
+# ActTrack AI MD
 
-ActTrack AI は、PC のアクティブウィンドウ履歴を収集し、Gemini による分類・日次サマリーを使って振り返りを支援する Windows 向けデスクトップアプリです。  
+ActTrack AI MD は、PC のアクティブウィンドウ履歴を収集し、Gemini による分類・日次サマリーを使って振り返りを支援する Windows 向けデスクトップアプリです。  
 このリポジトリには、**日次ログを Markdown 化するための設計・運用ガイド**も含まれています。
 
 ## プロジェクト概要
@@ -93,6 +93,8 @@ docs/
 
 - 日次ログ収集〜Markdown 出力の設計/運用ガイド:  
   [`docs/activity-markdown-guide.md`](./docs/activity-markdown-guide.md)
+- 暫定アプリ名ポリシー:  
+  [`docs/app-name-policy.md`](./docs/app-name-policy.md)
 - 既存の設計・実装計画: `docs/plans/`
 
 ## データ取り扱いとセキュリティ

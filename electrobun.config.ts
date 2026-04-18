@@ -1,9 +1,10 @@
 import type { ElectrobunConfig } from "electrobun";
+import { APP_META } from "./src/shared/app-meta";
 
 export default {
   app: {
-    name: "ActTrackAI",
-    identifier: "com.irdan.acttrackai",
+    name: APP_META.displayName,
+    identifier: APP_META.identifier,
     version: "1.0.0",
   },
 

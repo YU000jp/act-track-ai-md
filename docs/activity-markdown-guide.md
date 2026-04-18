@@ -1,13 +1,13 @@
-# ActTrack AI 日次ログ & Markdown 出力ガイド
+# ActTrack AI MD 日次ログ & Markdown 出力ガイド
 
-このドキュメントは、ActTrack AI を使って **PC 利用履歴を日次で記録し、AI 振り返りやアプリ利用統計を含む Markdown に出力する**ための技術ガイドです。  
+このドキュメントは、ActTrack AI MD を使って **PC 利用履歴を日次で記録し、AI 振り返りやアプリ利用統計を含む Markdown に出力する**ための技術ガイドです。  
 実装済み機能と、Markdown 自動出力を組み込むための拡張ポイントをまとめています。
 
 ---
 
 ## 1. 機能概要
 
-ActTrack AI のコア機能は以下です。
+ActTrack AI MD のコア機能は以下です。
 
 1. アクティブウィンドウを定期取得（`tracker.ts`）
 2. Gemini で活動カテゴリを分類（`gemini.ts` + `classifier.ts`）
