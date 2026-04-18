@@ -46,6 +46,13 @@ export function createSummarizer(deps: SummarizerDeps) {
   return { generateDailySummary };
 }
 
+export function formatAiSummaryForMarkdown(aiSummary: string | null): string {
+  if (!aiSummary) {
+    return "";
+  }
+  return `## AI Summary\n\n${aiSummary}\n`;
+}
+
 function buildSummaryPrompt(
   date: string,
   stats: {
