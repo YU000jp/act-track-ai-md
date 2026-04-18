@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActTrack AI Dashboard</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app" class="dashboard">
+      <header class="header">
+        <img src="../assets/icon.png" alt="ActTrack icon" />
+        <h1 class="title">ActTrack AI Dashboard</h1>
+      </header>
+
+      <nav id="tab-bar" aria-label="Dashboard tabs">
+        <button class="tab-btn active" data-tab="today">Today</button>
+        <button class="tab-btn" data-tab="statistics">Statistics</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+      </nav>
+
+      <section id="panel-today" class="panel active">
+        <div id="today-stats" class="stats-layout"></div>
+        <div id="top-apps" class="card"></div>
+      </section>
+
+      <section id="panel-statistics" class="panel">
+        <div class="charts-grid">
+          <div id="weekly-chart" class="card"></div>
+          <div id="monthly-trend" class="card"></div>
+        </div>
+      </section>
+
+      <section id="panel-settings" class="panel">
+        <div id="settings-content" class="card"></div>
+      </section>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
