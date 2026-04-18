@@ -63,6 +63,7 @@ export type AppSettings = {
   idleTimeoutMs: number;
   notificationCooldownMs: number;
   gracePeriodMs: number;
+  markdownExportPath: string;
   notificationsEnabled: boolean;
   autoStart: boolean;
 };
@@ -73,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   idleTimeoutMs: 300_000,
   notificationCooldownMs: 300_000,
   gracePeriodMs: 30_000,
+  markdownExportPath: "",
   notificationsEnabled: true,
   autoStart: false,
 };
