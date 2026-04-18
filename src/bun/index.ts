@@ -227,9 +227,7 @@ export function startApp(): void {
       return;
     }
 
-    const previousDayDate = new Date(`${today}T00:00:00Z`);
-    previousDayDate.setUTCDate(previousDayDate.getUTCDate() - 1);
-    const previousDay = previousDayDate.toISOString().slice(0, 10);
+    const previousDay = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
     void runDailyExport(previousDay);
     lastSeenDay = today;

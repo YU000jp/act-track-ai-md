@@ -41,7 +41,9 @@ function escapeCell(value: string): string {
 }
 
 function toTag(value: string): string {
-  const normalized = value.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/(^-|-$)/g, "");
+  const trimmed = value.trim().toLowerCase();
+  const dashed = trimmed.replaceAll(/[^a-z0-9]+/g, "-");
+  const normalized = dashed.replaceAll(/(^-|-$)/g, "");
   return normalized ? `#${normalized}` : "";
 }
 
