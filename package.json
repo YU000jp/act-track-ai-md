@@ -1,5 +1,5 @@
 {
-  "name": "act-track-ai",
+  "name": "act-track-ai-md",
   "private": true,
   "devDependencies": {
     "@types/bun": "latest"

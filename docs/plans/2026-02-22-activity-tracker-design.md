@@ -1,4 +1,4 @@
-# ActTrack AI — Design Document (v2)
+# ActTrack AI MD — Design Document (v2)
 
 Date: 2026-02-22
 
@@ -19,7 +19,7 @@ A personal desktop productivity tracker for Windows, built with Electrobun (Bun 
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   ActTrack AI                        │
+│                  ActTrack AI MD                      │
 │                                                      │
 │  ┌──────────────────────────────────────────────┐   │
 │  │          Main Process (Bun)                   │   │
@@ -226,7 +226,7 @@ At 23:00 (or on-demand), batch the day's activity log to Gemini for a narrative 
 ## 11. File Structure
 
 ```
-act-track-ai/
+act-track-ai-md/
 ├── electrobun.config.ts
 ├── package.json
 ├── src/

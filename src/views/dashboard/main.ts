@@ -1,4 +1,5 @@
 import type { ActivityCategory, AppSettings, DashboardRPC } from "../../shared/types";
+import { APP_META } from "../../shared/app-meta";
 import { renderMonthlyTrend, renderWeeklyChart } from "./charts";
 
 type TodayStats = {
@@ -266,8 +267,18 @@ function bindSettingsSave(app: HTMLElement): void {
   });
 }
 
+function applyBranding(app: HTMLElement): void {
+  const dashboardTitle = `${APP_META.displayName} Dashboard`;
+  document.title = dashboardTitle;
+  const titleElement = app.querySelector<HTMLElement>(".title");
+  if (titleElement) {
+    titleElement.textContent = dashboardTitle;
+  }
+}
+
 if (typeof document !== "undefined" && document.getElementById("app")) {
   const app = document.getElementById("app") as HTMLElement;
+  applyBranding(app);
   initTabs(app);
   renderDashboardSkeleton(app);
   void hydrateFromRPC(app);

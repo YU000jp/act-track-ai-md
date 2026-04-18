@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "act-track-ai",
+      "name": "act-track-ai-md",
       "dependencies": {
         "electrobun": "^1.13.1",
       },
