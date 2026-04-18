@@ -11,7 +11,7 @@ export type ClassificationResult = {
   category: ActivityCategory;
   label: string;
   confidence: number;
-  source: "cache" | "gemini" | "fallback";
+  source: "cache" | "gemini" | "rule" | "fallback";
 };
 
 export type ActivitySample = {
@@ -47,6 +47,7 @@ export type DashboardRPC = {
     getTopApps: () => Promise<Array<{ processName: string; durationMs: number; category: ActivityCategory }>>;
     getTimeline: (date: string) => Promise<ActivitySample[]>;
     getDailySummary: (date: string) => Promise<DailySummary | null>;
+    getSettings: () => Promise<AppSettings>;
     setSetting: (input: { key: string; value: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;
     generateSummaryNow: () => Promise<void>;
@@ -66,6 +67,11 @@ export type AppSettings = {
   markdownExportPath: string;
   notificationsEnabled: boolean;
   autoStart: boolean;
+  classificationRulesJson: string;
+  summaryLanguage: string;
+  summaryTone: string;
+  markdownPrivacyMode: boolean;
+  startInBackground: boolean;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -77,4 +83,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   markdownExportPath: "",
   notificationsEnabled: true,
   autoStart: false,
+  classificationRulesJson: "",
+  summaryLanguage: "Japanese",
+  summaryTone: "encouraging",
+  markdownPrivacyMode: false,
+  startInBackground: true,
 };

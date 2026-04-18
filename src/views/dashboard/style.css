@@ -190,21 +190,36 @@ body {
   margin-bottom: 12px;
 }
 
+#settings-form h3 {
+  margin: 18px 0 10px;
+  font-size: 0.95rem;
+}
+
 .form-group.checkbox {
   flex-direction: row;
   align-items: center;
 }
 
-input {
+input,
+textarea {
   background: var(--surface-soft);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 8px;
   padding: 10px;
   outline: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 
-input:focus {
+textarea {
+  min-height: 144px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
   border-color: var(--focus);
   box-shadow: 0 0 0 3px rgb(102 217 255 / 0.15);
 }
@@ -217,6 +232,19 @@ input:focus {
   color: #061216;
   background: linear-gradient(120deg, #66d9ff, #4ade80);
   cursor: pointer;
+}
+
+.settings-feedback {
+  margin-top: 12px;
+  min-height: 1.2em;
+  color: #9ae6b4;
+  font-size: 0.9rem;
+}
+
+.settings-hint {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
 }
 
 .charts-grid {

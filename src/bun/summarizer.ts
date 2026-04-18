@@ -14,13 +14,16 @@ export function createSummarizer(deps: SummarizerDeps) {
   async function generateDailySummary(date: string): Promise<void> {
     const stats = deps.datastores.getStatsForDay(date);
     const topApps = deps.datastores.getTopAppsForDay(date, 10);
+    const apiKey = deps.datastores.getSetting("geminiApiKey") || deps.apiKey;
+    const summaryLanguage = deps.datastores.getSetting("summaryLanguage") || "Japanese";
+    const summaryTone = deps.datastores.getSetting("summaryTone") || "encouraging";
 
     let aiSummary: string | null = null;
 
-    if (deps.apiKey && stats.totalTrackedMs > 0) {
+    if (apiKey && stats.totalTrackedMs > 0) {
       try {
-        const prompt = buildSummaryPrompt(date, stats, topApps);
-        aiSummary = await callGeminiForSummary(prompt, deps.apiKey, fetcher);
+        const prompt = buildSummaryPrompt(date, stats, topApps, summaryLanguage, summaryTone);
+        aiSummary = await callGeminiForSummary(prompt, apiKey, fetcher, summaryLanguage, summaryTone);
       } catch {
         aiSummary = null;
       }
@@ -62,6 +65,8 @@ function buildSummaryPrompt(
     neutralMs: number;
   },
   topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>,
+  summaryLanguage: string,
+  summaryTone: string,
 ): string {
   const formatMs = (ms: number) => {
     const hours = Math.floor(ms / 3_600_000);
@@ -73,7 +78,7 @@ function buildSummaryPrompt(
     .map((app) => `- ${app.processName}: ${formatMs(app.durationMs)} (${app.category})`)
     .join("\n");
 
-  return `Summarize my productivity for ${date}:
+  return `Summarize my productivity for ${date}.
 
 Total tracked: ${formatMs(stats.totalTrackedMs)}
 Productive: ${formatMs(stats.productiveMs)}
@@ -83,10 +88,18 @@ Neutral: ${formatMs(stats.neutralMs)}
 Top apps:
 ${appList || "No apps tracked"}
 
-Write a brief, encouraging 2-3 sentence summary in Indonesian. Focus on what went well and one area to improve.`;
+Write a brief 2-3 sentence summary in ${summaryLanguage}.
+Tone: ${summaryTone}.
+Focus on what went well and one area to improve.`;
 }
 
-async function callGeminiForSummary(prompt: string, apiKey: string, fetcher: FetchFn): Promise<string> {
+async function callGeminiForSummary(
+  prompt: string,
+  apiKey: string,
+  fetcher: FetchFn,
+  summaryLanguage: string,
+  summaryTone: string,
+): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
   const response = await fetcher(url, {
@@ -96,7 +109,9 @@ async function callGeminiForSummary(prompt: string, apiKey: string, fetcher: Fet
       contents: [{ parts: [{ text: prompt }] }],
       systemInstruction: {
         parts: [
-          { text: "You are a productivity coach. Provide brief, encouraging daily summaries in Indonesian." },
+          {
+            text: `You are a productivity coach. Provide brief daily summaries in ${summaryLanguage} with a ${summaryTone} tone.`,
+          },
         ],
       },
     }),

@@ -81,12 +81,21 @@ describe("dashboard DOM", () => {
       gracePeriodMs: 30000,
       markdownExportPath: "/tmp/act-track-logs",
       notificationsEnabled: true,
+      autoStart: true,
+      classificationRulesJson: '[{"processNamePattern":"code","category":"productive","label":"Coding"}]',
+      summaryLanguage: "Japanese",
+      summaryTone: "reflective",
+      markdownPrivacyMode: true,
+      startInBackground: true,
     });
 
     const inputs = container.querySelectorAll("input");
     expect(inputs.length).toBeGreaterThanOrEqual(4);
     expect(container.innerHTML).toContain('id="markdownExportPath"');
     expect(container.innerHTML).toContain('value="/tmp/act-track-logs"');
+    expect(container.innerHTML).toContain('id="classificationRulesJson"');
+    expect(container.innerHTML).toContain('id="startInBackground"');
+    expect(container.innerHTML).toContain("Restart required");
   });
 
   it("formatDuration formats milliseconds correctly", () => {

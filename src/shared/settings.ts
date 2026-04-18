@@ -1,0 +1,131 @@
+import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppSettings } from "./types";
+
+export type ClassificationRule = {
+  processNamePattern: string;
+  windowTitlePattern: string;
+  category: ActivityCategory;
+  label: string;
+};
+
+export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof AppSettings>;
+
+export const RESTART_REQUIRED_SETTINGS: Array<keyof AppSettings> = [
+  "pollIntervalMs",
+  "idleTimeoutMs",
+  "notificationCooldownMs",
+  "gracePeriodMs",
+  "autoStart",
+  "startInBackground",
+];
+
+function parseBooleanSetting(value: string | null, fallback: boolean): boolean {
+  if (value === null) {
+    return fallback;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return fallback;
+}
+
+function parseNumberSetting(value: string | null, fallback: number, minValue = 0): number {
+  if (value === null) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < minValue) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+export function loadAppSettings(getSetting: (key: keyof AppSettings) => string | null): AppSettings {
+  return {
+    geminiApiKey: getSetting("geminiApiKey") ?? DEFAULT_SETTINGS.geminiApiKey,
+    pollIntervalMs: parseNumberSetting(getSetting("pollIntervalMs"), DEFAULT_SETTINGS.pollIntervalMs, 1),
+    idleTimeoutMs: parseNumberSetting(getSetting("idleTimeoutMs"), DEFAULT_SETTINGS.idleTimeoutMs, 1),
+    notificationCooldownMs: parseNumberSetting(
+      getSetting("notificationCooldownMs"),
+      DEFAULT_SETTINGS.notificationCooldownMs,
+      0,
+    ),
+    gracePeriodMs: parseNumberSetting(getSetting("gracePeriodMs"), DEFAULT_SETTINGS.gracePeriodMs, 0),
+    markdownExportPath: getSetting("markdownExportPath") ?? DEFAULT_SETTINGS.markdownExportPath,
+    notificationsEnabled: parseBooleanSetting(
+      getSetting("notificationsEnabled"),
+      DEFAULT_SETTINGS.notificationsEnabled,
+    ),
+    autoStart: parseBooleanSetting(getSetting("autoStart"), DEFAULT_SETTINGS.autoStart),
+    classificationRulesJson: getSetting("classificationRulesJson") ?? DEFAULT_SETTINGS.classificationRulesJson,
+    summaryLanguage: getSetting("summaryLanguage") ?? DEFAULT_SETTINGS.summaryLanguage,
+    summaryTone: getSetting("summaryTone") ?? DEFAULT_SETTINGS.summaryTone,
+    markdownPrivacyMode: parseBooleanSetting(
+      getSetting("markdownPrivacyMode"),
+      DEFAULT_SETTINGS.markdownPrivacyMode,
+    ),
+    startInBackground: parseBooleanSetting(
+      getSetting("startInBackground"),
+      DEFAULT_SETTINGS.startInBackground,
+    ),
+  };
+}
+
+export function parseClassificationRules(raw: string | null | undefined): ClassificationRule[] {
+  if (!raw?.trim()) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.flatMap((rule) => {
+    if (typeof rule !== "object" || rule === null) {
+      return [];
+    }
+
+    const candidate = rule as Record<string, unknown>;
+    const processNamePattern =
+      typeof candidate.processNamePattern === "string" ? candidate.processNamePattern.trim() : "";
+    const windowTitlePattern =
+      typeof candidate.windowTitlePattern === "string" ? candidate.windowTitlePattern.trim() : "";
+    const category = candidate.category;
+    const label = typeof candidate.label === "string" ? candidate.label.trim() : "";
+
+    if (!processNamePattern && !windowTitlePattern) {
+      return [];
+    }
+
+    if (typeof category !== "string" || !(ACTIVITY_CATEGORIES as readonly string[]).includes(category)) {
+      return [];
+    }
+
+    if (!label) {
+      return [];
+    }
+
+    return [
+      {
+        processNamePattern,
+        windowTitlePattern,
+        category: category as ActivityCategory,
+        label,
+      },
+    ];
+  });
+}

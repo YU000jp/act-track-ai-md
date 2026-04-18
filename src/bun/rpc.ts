@@ -1,3 +1,4 @@
+import { loadAppSettings } from "../shared/settings";
 import type { DashboardRPC } from "../shared/types";
 import type { Datastores } from "./db";
 
@@ -38,6 +39,10 @@ export function createRPCHandlers(
 
     async getDailySummary(date: string) {
       return datastores.getDailySummary(date);
+    },
+
+    async getSettings() {
+      return loadAppSettings((key) => datastores.getSetting(key));
     },
 
     async setSetting(input) {

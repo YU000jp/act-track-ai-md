@@ -77,6 +77,7 @@ export function createMarkdownExporter(deps: MarkdownExporterDeps) {
   async function exportDay(date: string): Promise<{ outputPath: string; markdown: string }> {
     const outputDirectory = resolveMarkdownExportDirectory(deps.outputDir, deps.homeDirectory);
     await mkdir(outputDirectory, { recursive: true });
+    const hideWindowTitles = deps.datastores.getSetting("markdownPrivacyMode") === "true";
 
     const { start, end } = getDayBounds(date);
     const activity = deps.datastores.getActivityRange(start, end);
@@ -104,7 +105,8 @@ export function createMarkdownExporter(deps: MarkdownExporterDeps) {
       "| Time | App | Window | Category | Label | Duration |",
       "| --- | --- | --- | --- | --- | --- |",
       ...activity.map((sample) => {
-        return `| ${formatTimestamp(sample.timestamp)} | ${escapeCell(sample.processName)} | ${escapeCell(sample.windowTitle)} | ${sample.category} | ${escapeCell(sample.label)} | ${formatDuration(sample.durationMs)} |`;
+        const windowTitle = hideWindowTitles ? "[hidden]" : escapeCell(sample.windowTitle);
+        return `| ${formatTimestamp(sample.timestamp)} | ${escapeCell(sample.processName)} | ${windowTitle} | ${sample.category} | ${escapeCell(sample.label)} | ${formatDuration(sample.durationMs)} |`;
       }),
     ];
 

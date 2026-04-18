@@ -88,4 +88,30 @@ describe("markdown exporter", () => {
     const fileStat = await stat(outputPath);
     expect(fileStat.isFile()).toBe(true);
   });
+
+  it("hides window titles in markdown privacy mode", async () => {
+    const date = "2026-04-18";
+    const baseTs = new Date(`${date}T09:00:00`).getTime();
+    datastores.setSetting("markdownPrivacyMode", "true");
+
+    datastores.insertActivitySample({
+      timestamp: baseTs,
+      processName: "mail.exe",
+      windowTitle: "Quarterly Report - Confidential",
+      category: "neutral",
+      label: "Email",
+    });
+    datastores.setActivityDuration(1, 600_000);
+
+    const exporter = createMarkdownExporter({
+      datastores,
+      outputDir: tempDir,
+    });
+
+    const result = await exporter.exportDay(date);
+    const saved = await Bun.file(result.outputPath).text();
+
+    expect(saved).toContain("[hidden]");
+    expect(saved).not.toContain("Quarterly Report - Confidential");
+  });
 });

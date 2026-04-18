@@ -120,6 +120,12 @@ Markdown 日報出力は、上記データを整形する `md-exporter` 相当�
 - `notificationCooldownMs`
 - `gracePeriodMs`
 - `notificationsEnabled`
+- `classificationRulesJson`
+- `summaryLanguage`
+- `summaryTone`
+- `markdownPrivacyMode`
+- `autoStart`
+- `startInBackground`
 
 ### 例1: 記録粒度を上げる
 
@@ -135,6 +141,23 @@ Markdown 日報出力は、上記データを整形する `md-exporter` 相当�
 ### 例3: Markdown 出力先を切り替える（拡張時）
 
 - エクスポータに `outputDir` を設定可能にし、`~/Documents/act-track-logs` などへ保存
+
+### 例4: Markdown のプライバシーモードを有効化する
+
+- `markdownPrivacyMode`: `false` → `true`
+- 効果: Markdown の `Window` 列を `[hidden]` に置換
+
+### 例5: AI 要約の言語・文体を変える
+
+- `summaryLanguage`: `Japanese`, `English`, `Indonesian` など
+- `summaryTone`: `encouraging`, `reflective`, `concise` など
+
+### 例6: 自動起動時はバックグラウンド起動にする
+
+- `autoStart`: `true`
+- `startInBackground`: `true`
+- 効果: 自動起動時はダッシュボードを前面に出さない想定で起動設定を保持
+- 補足: 起動関連の変更は再起動後に反映されます
 
 ---
 

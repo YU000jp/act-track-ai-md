@@ -1,4 +1,5 @@
-import type { ActivityCategory, AppSettings, DashboardRPC } from "../../shared/types";
+import { DEFAULT_SETTINGS, type ActivityCategory, type AppSettings, type DashboardRPC } from "../../shared/types";
+import { RESTART_REQUIRED_SETTINGS } from "../../shared/settings";
 import { APP_META } from "../../shared/app-meta";
 import { renderMonthlyTrend, renderWeeklyChart } from "./charts";
 
@@ -13,16 +14,6 @@ type TopApp = {
   processName: string;
   durationMs: number;
   category: ActivityCategory | string;
-};
-
-type SettingsData = {
-  geminiApiKey: string;
-  pollIntervalMs: number;
-  idleTimeoutMs: number;
-  notificationCooldownMs: number;
-  gracePeriodMs: number;
-  markdownExportPath: string;
-  notificationsEnabled: boolean;
 };
 
 type DashboardRPCLike = DashboardRPC["requests"];
@@ -124,12 +115,52 @@ export function renderTopApps(container: HTMLElement, apps: TopApp[]): void {
   `;
 }
 
-export function renderSettings(container: HTMLElement, settings: SettingsData): void {
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export function renderSettings(container: HTMLElement, settings: AppSettings): void {
   container.innerHTML = `
     <form id="settings-form">
+      <h3>AI</h3>
       <div class="form-group">
         <label for="geminiApiKey">Gemini API Key</label>
-        <input type="password" id="geminiApiKey" name="geminiApiKey" value="${settings.geminiApiKey}" />
+        <input type="password" id="geminiApiKey" name="geminiApiKey" value="${escapeHtml(settings.geminiApiKey)}" />
+      </div>
+      <div class="form-group">
+        <label for="summaryLanguage">Summary Language</label>
+        <input type="text" id="summaryLanguage" name="summaryLanguage" value="${escapeHtml(settings.summaryLanguage)}" placeholder="Japanese" />
+      </div>
+      <div class="form-group">
+        <label for="summaryTone">Summary Tone</label>
+        <input type="text" id="summaryTone" name="summaryTone" value="${escapeHtml(settings.summaryTone)}" placeholder="encouraging" />
+      </div>
+      <div class="form-group">
+        <label for="classificationRulesJson">Classification Rules (JSON)</label>
+        <textarea id="classificationRulesJson" name="classificationRulesJson" rows="8" placeholder='[{"processNamePattern":"code","windowTitlePattern":"github","category":"productive","label":"Coding"}]'>${escapeHtml(settings.classificationRulesJson)}</textarea>
+      </div>
+      <h3>Tracking</h3>
+      <div class="form-group checkbox">
+        <label>
+          <input type="checkbox" id="autoStart" name="autoStart" ${settings.autoStart ? "checked" : ""} />
+          Enable Auto Start
+        </label>
+      </div>
+      <div class="form-group checkbox">
+        <label>
+          <input
+            type="checkbox"
+            id="startInBackground"
+            name="startInBackground"
+            ${settings.startInBackground ? "checked" : ""}
+          />
+          Start in Background when launched automatically
+        </label>
       </div>
       <div class="form-group">
         <label for="pollIntervalMs">Poll Interval (ms)</label>
@@ -153,16 +184,29 @@ export function renderSettings(container: HTMLElement, settings: SettingsData): 
         <label for="gracePeriodMs">Grace Period (ms)</label>
         <input type="number" id="gracePeriodMs" name="gracePeriodMs" value="${settings.gracePeriodMs}" min="0" />
       </div>
+      <h3>Markdown</h3>
       <div class="form-group">
         <label for="markdownExportPath">Markdown Export Directory</label>
         <input
           type="text"
           id="markdownExportPath"
           name="markdownExportPath"
-          value="${settings.markdownExportPath}"
+          value="${escapeHtml(settings.markdownExportPath)}"
           placeholder="~/act-track-logs"
         />
       </div>
+      <div class="form-group checkbox">
+        <label>
+          <input
+            type="checkbox"
+            id="markdownPrivacyMode"
+            name="markdownPrivacyMode"
+            ${settings.markdownPrivacyMode ? "checked" : ""}
+          />
+          Hide sensitive window titles in Markdown exports
+        </label>
+      </div>
+      <h3>Notifications</h3>
       <div class="form-group checkbox">
         <label>
           <input
@@ -175,6 +219,8 @@ export function renderSettings(container: HTMLElement, settings: SettingsData): 
         </label>
       </div>
       <button type="submit" class="btn-save">Save Settings</button>
+      <div id="settings-feedback" class="settings-feedback" role="status" aria-live="polite"></div>
+      <p class="settings-hint">Restart required for polling, idle timing, and startup behavior changes.</p>
     </form>
   `;
 }
@@ -200,15 +246,7 @@ function renderDashboardSkeleton(app: HTMLElement): void {
   }
 
   if (settingsContainer) {
-    renderSettings(settingsContainer, {
-      geminiApiKey: "",
-      pollIntervalMs: 3000,
-      idleTimeoutMs: 300000,
-      notificationCooldownMs: 300000,
-      gracePeriodMs: 30000,
-      markdownExportPath: "",
-      notificationsEnabled: true,
-    });
+    renderSettings(settingsContainer, DEFAULT_SETTINGS);
   }
 
   if (weeklyChartContainer) {
@@ -226,9 +264,14 @@ async function hydrateFromRPC(app: HTMLElement): Promise<void> {
     return;
   }
 
-  const [todaySummary, topApps] = await Promise.all([rpc.getTodaySummary(), rpc.getTopApps()]);
+  const [todaySummary, topApps, settings] = await Promise.all([
+    rpc.getTodaySummary(),
+    rpc.getTopApps(),
+    rpc.getSettings(),
+  ]);
   const todayStatsContainer = app.querySelector<HTMLElement>("#today-stats");
   const topAppsContainer = app.querySelector<HTMLElement>("#top-apps");
+  const settingsContainer = app.querySelector<HTMLElement>("#settings-content");
 
   if (todayStatsContainer) {
     renderTodayStats(todayStatsContainer, todaySummary);
@@ -237,13 +280,20 @@ async function hydrateFromRPC(app: HTMLElement): Promise<void> {
   if (topAppsContainer) {
     renderTopApps(topAppsContainer, topApps);
   }
+
+  if (settingsContainer) {
+    renderSettings(settingsContainer, settings);
+    bindSettingsSave(app, settings);
+  }
 }
 
-function bindSettingsSave(app: HTMLElement): void {
+function bindSettingsSave(app: HTMLElement, initialSettings: AppSettings = DEFAULT_SETTINGS): void {
   const form = app.querySelector<HTMLFormElement>("#settings-form");
   if (!form) {
     return;
   }
+
+  let currentSettings = initialSettings;
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -252,18 +302,40 @@ function bindSettingsSave(app: HTMLElement): void {
       return;
     }
 
+    const feedback = app.querySelector<HTMLElement>("#settings-feedback");
     const data = new FormData(form);
-    const updates: Array<[keyof AppSettings, string]> = [
-      ["geminiApiKey", String(data.get("geminiApiKey") ?? "")],
-      ["pollIntervalMs", String(data.get("pollIntervalMs") ?? "3000")],
-      ["idleTimeoutMs", String(data.get("idleTimeoutMs") ?? "300000")],
-      ["notificationCooldownMs", String(data.get("notificationCooldownMs") ?? "300000")],
-      ["gracePeriodMs", String(data.get("gracePeriodMs") ?? "30000")],
-      ["markdownExportPath", String(data.get("markdownExportPath") ?? "")],
-      ["notificationsEnabled", data.get("notificationsEnabled") ? "true" : "false"],
-    ];
+    const nextSettings: AppSettings = {
+      geminiApiKey: String(data.get("geminiApiKey") ?? ""),
+      pollIntervalMs: Number(data.get("pollIntervalMs") ?? DEFAULT_SETTINGS.pollIntervalMs),
+      idleTimeoutMs: Number(data.get("idleTimeoutMs") ?? DEFAULT_SETTINGS.idleTimeoutMs),
+      notificationCooldownMs: Number(
+        data.get("notificationCooldownMs") ?? DEFAULT_SETTINGS.notificationCooldownMs,
+      ),
+      gracePeriodMs: Number(data.get("gracePeriodMs") ?? DEFAULT_SETTINGS.gracePeriodMs),
+      markdownExportPath: String(data.get("markdownExportPath") ?? ""),
+      notificationsEnabled: data.get("notificationsEnabled") !== null,
+      autoStart: data.get("autoStart") !== null,
+      classificationRulesJson: String(data.get("classificationRulesJson") ?? ""),
+      summaryLanguage: String(data.get("summaryLanguage") ?? DEFAULT_SETTINGS.summaryLanguage),
+      summaryTone: String(data.get("summaryTone") ?? DEFAULT_SETTINGS.summaryTone),
+      markdownPrivacyMode: data.get("markdownPrivacyMode") !== null,
+      startInBackground: data.get("startInBackground") !== null,
+    };
+
+    const updates = (Object.entries(nextSettings) as Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>).map(
+      ([key, value]) => [key, String(value)] as const,
+    );
 
     await Promise.all(updates.map(([key, value]) => rpc.setSetting({ key, value })));
+
+    const restartKeys = RESTART_REQUIRED_SETTINGS.filter((key) => nextSettings[key] !== currentSettings[key]);
+    if (feedback) {
+      feedback.textContent =
+        restartKeys.length > 0
+          ? `Saved. Restart required to apply: ${restartKeys.join(", ")}`
+          : "Saved. Changes are ready to use.";
+    }
+    currentSettings = nextSettings;
   });
 }
 

@@ -59,4 +59,12 @@ describe("shared types", () => {
     expect(summary.date).toBe("2026-02-22");
     expect(summary.topApps.length).toBe(1);
   });
+
+  it("default settings include advanced customization fields", async () => {
+    const mod = await import("../../src/shared/types");
+    expect(mod.DEFAULT_SETTINGS.summaryLanguage).toBe("Japanese");
+    expect(mod.DEFAULT_SETTINGS.summaryTone).toBe("encouraging");
+    expect(mod.DEFAULT_SETTINGS.markdownPrivacyMode).toBe(false);
+    expect(mod.DEFAULT_SETTINGS.startInBackground).toBe(true);
+  });
 });
