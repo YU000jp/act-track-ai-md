@@ -105,16 +105,16 @@ async function callGeminiForSummary(
   const response = await fetcher(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        systemInstruction: {
-          parts: [
-            {
-              text: `You are a productivity coach. Provide brief daily summaries in ${summaryLanguage} with a ${summaryTone} tone.`,
-            },
-          ],
-        },
-      }),
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: {
+        parts: [
+          {
+            text: `You are a productivity coach. Provide brief daily summaries in ${summaryLanguage} with a ${summaryTone} tone.`,
+          },
+        ],
+      },
+    }),
   });
 
   if (!response.ok) {

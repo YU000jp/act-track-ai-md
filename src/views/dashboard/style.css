@@ -208,7 +208,9 @@ textarea {
   border-radius: 8px;
   padding: 10px;
   outline: none;
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 textarea {

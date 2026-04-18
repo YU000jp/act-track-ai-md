@@ -322,7 +322,7 @@ function bindSettingsSave(app: HTMLElement, initialSettings: AppSettings = DEFAU
     };
 
     const updates = (Object.entries(nextSettings) as Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>).map(
-      ([key, value]) => [key, typeof value === "boolean" ? String(value) : String(value)] as const,
+      ([key, value]) => [key, String(value)] as const,
     );
 
     await Promise.all(updates.map(([key, value]) => rpc.setSetting({ key, value })));
