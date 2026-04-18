@@ -11,6 +11,7 @@ ActTrack AI は、PC のアクティブウィンドウ履歴を収集し、Gemin
 - 注意散漫状態の通知（猶予時間・クールダウン付き）
 - 日次の AI サマリーを生成して保存
 - 日次 Markdown エクスポート（既定: `~/act-track-logs/YYYY-MM-DD.md`）
+- ユーザー定義の分類ルール / AI要約の言語・文体 / Markdown プライバシーモードを設定可能
 - 日次 Markdown 出力の仕様と実装ガイドを `docs/` で提供
 
 ## 特徴とユースケース
@@ -21,6 +22,7 @@ ActTrack AI は、PC のアクティブウィンドウ履歴を収集し、Gemin
 - **Cache-First**: 同一ウィンドウ分類の再利用で高速化
 - **Daily AI Summary**: 日次統計から短い振り返りを生成
 - **Dashboard**: Today/Statistics/Settings を WebView で表示
+- **Custom Rules & Privacy**: 手動分類ルールと機密タイトル非表示を設定可能
 
 ### ユースケース
 - 毎日の作業時間・集中時間帯のセルフレビュー
@@ -98,6 +100,7 @@ docs/
 - ログはローカル SQLite に保存されます（`data/`）
 - ウィンドウタイトルには機密情報が含まれる可能性があります
 - Gemini 利用時は送信データ範囲を確認し、API キーは `.env` で管理してください
+- Markdown プライバシーモードを有効にすると、エクスポート時にウィンドウタイトルを `[hidden]` に置換します
 
 ## Tech Stack
 

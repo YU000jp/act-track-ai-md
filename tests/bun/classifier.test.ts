@@ -76,6 +76,33 @@ describe("createClassifier", () => {
     expect(cached?.label).toBe("Coding");
   });
 
+  it("applies a user-defined rule before cache and Gemini", async () => {
+    datastores.setSetting(
+      "classificationRulesJson",
+      JSON.stringify([
+        {
+          processNamePattern: "chrome",
+          windowTitlePattern: "github",
+          category: "productive",
+          label: "Code Review",
+        },
+      ]),
+    );
+
+    const classifier = createClassifier({
+      datastores,
+      geminiClassify: mockGemini,
+      apiKey: "test-key",
+    });
+
+    const result = await classifier.classify("chrome.exe", "GitHub Pull Request");
+
+    expect(result.source).toBe("rule");
+    expect(result.category).toBe("productive");
+    expect(result.label).toBe("Code Review");
+    expect(geminiCallCount).toBe(0);
+  });
+
   it("returns unknown fallback when Gemini fails", async () => {
     geminiShouldThrow = true;
 

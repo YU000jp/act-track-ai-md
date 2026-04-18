@@ -5,6 +5,7 @@ import { createMarkdownExporter } from "./md-exporter";
 import { createNotifierPolicy } from "./notifier";
 import { createSummarizer } from "./summarizer";
 import { createWindowsFFIBindings, isIdle, type TrackerBindings } from "./tracker";
+import { loadAppSettings } from "../shared/settings";
 import type { ActivityCategory } from "../shared/types";
 
 type GeminiClassifyFn = (opts: {
@@ -133,19 +134,6 @@ export function createApp(deps: AppDeps): App {
   };
 }
 
-function parseNumberSetting(value: string | null, fallback: number): number {
-  if (value === null) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
-}
-
 type ElectrobunLike = {
   Utils?: {
     showNotification?: (opts: { title: string; body: string }) => void;
@@ -172,14 +160,8 @@ function loadElectrobun(): ElectrobunLike | null {
 
 export function startApp(): void {
   const datastores = createDatastores("act-track-cache.db", "act-track-activity.db");
-
-  const apiKeyFromSettings = datastores.getSetting("geminiApiKey");
-  const apiKey = apiKeyFromSettings || process.env.GEMINI_API_KEY || "";
-
-  const pollIntervalMs = parseNumberSetting(datastores.getSetting("pollIntervalMs"), 3_000);
-  const idleTimeoutMs = parseNumberSetting(datastores.getSetting("idleTimeoutMs"), 300_000);
-  const graceMs = parseNumberSetting(datastores.getSetting("gracePeriodMs"), 30_000);
-  const cooldownMs = parseNumberSetting(datastores.getSetting("notificationCooldownMs"), 300_000);
+  const settings = loadAppSettings((key) => datastores.getSetting(key));
+  const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY || "";
 
   const electrobun = loadElectrobun();
 
@@ -187,11 +169,14 @@ export function startApp(): void {
     tracker: createWindowsFFIBindings(),
     datastores,
     apiKey,
-    pollIntervalMs,
-    idleTimeoutMs,
-    graceMs,
-    cooldownMs,
+    pollIntervalMs: settings.pollIntervalMs,
+    idleTimeoutMs: settings.idleTimeoutMs,
+    graceMs: settings.gracePeriodMs,
+    cooldownMs: settings.notificationCooldownMs,
     notify: (title, body) => {
+      if (datastores.getSetting("notificationsEnabled") === "false") {
+        return;
+      }
       if (electrobun?.Utils?.showNotification) {
         electrobun.Utils.showNotification({ title, body });
         return;

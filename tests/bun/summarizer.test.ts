@@ -29,6 +29,8 @@ describe("createSummarizer", () => {
   it("aggregates day data and calls Gemini for summary", async () => {
     const today = new Date().toISOString().slice(0, 10);
     const baseTs = new Date(`${today}T10:00:00`).getTime();
+    datastores.setSetting("summaryLanguage", "Japanese");
+    datastores.setSetting("summaryTone", "reflective");
 
     datastores.insertActivitySample({
       timestamp: baseTs,
@@ -59,6 +61,8 @@ describe("createSummarizer", () => {
     expect(geminiCalls.length).toBe(1);
     expect(geminiCalls[0].prompt).toContain("code.exe");
     expect(geminiCalls[0].prompt).toContain("chrome.exe");
+    expect(geminiCalls[0].prompt).toContain("Japanese");
+    expect(geminiCalls[0].prompt).toContain("reflective");
 
     const summary = datastores.getDailySummary(today);
     expect(summary).not.toBeNull();
@@ -124,5 +128,35 @@ describe("createSummarizer", () => {
     const summary = datastores.getDailySummary(today);
     expect(summary).not.toBeNull();
     expect(summary!.aiSummary).toBeNull();
+  });
+
+  it("prefers the latest API key stored in settings", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    datastores.setSetting("geminiApiKey", "fresh-key");
+
+    datastores.insertActivitySample({
+      timestamp: new Date(`${today}T10:00:00`).getTime(),
+      processName: "code.exe",
+      windowTitle: "app.ts",
+      category: "productive",
+      label: "Coding",
+    });
+    datastores.setActivityDuration(1, 1_800_000);
+
+    let calledUrl = "";
+    const summarizer = createSummarizer({
+      datastores,
+      apiKey: "stale-key",
+      fetchImpl: async (url) => {
+        calledUrl = String(url);
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "fresh summary" }] } }],
+        }));
+      },
+    });
+
+    await summarizer.generateDailySummary(today);
+
+    expect(calledUrl).toContain("fresh-key");
   });
 });
