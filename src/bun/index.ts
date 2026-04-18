@@ -1,7 +1,9 @@
 import { createClassifier } from "./classifier";
 import { createDatastores, type Datastores } from "./db";
 import { classifyWithGemini } from "./gemini";
+import { createMarkdownExporter } from "./md-exporter";
 import { createNotifierPolicy } from "./notifier";
+import { createSummarizer } from "./summarizer";
 import { createWindowsFFIBindings, isIdle, type TrackerBindings } from "./tracker";
 import type { ActivityCategory } from "../shared/types";
 
@@ -201,4 +203,33 @@ export function startApp(): void {
   });
 
   app.start();
+
+  const summarizer = createSummarizer({ datastores, apiKey });
+  let lastSeenDay = new Date().toISOString().slice(0, 10);
+
+  const runDailyExport = async (date: string) => {
+    try {
+      await summarizer.generateDailySummary(date);
+      const configuredOutputPath = datastores.getSetting("markdownExportPath");
+      const exporter = createMarkdownExporter({
+        datastores,
+        outputDir: configuredOutputPath,
+      });
+      await exporter.exportDay(date);
+    } catch (error) {
+      console.error("[export] Failed to export markdown:", error);
+    }
+  };
+
+  setInterval(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today === lastSeenDay) {
+      return;
+    }
+
+    const previousDay = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+    void runDailyExport(previousDay);
+    lastSeenDay = today;
+  }, 60_000);
 }

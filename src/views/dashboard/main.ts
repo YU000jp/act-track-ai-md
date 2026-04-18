@@ -20,6 +20,7 @@ type SettingsData = {
   idleTimeoutMs: number;
   notificationCooldownMs: number;
   gracePeriodMs: number;
+  markdownExportPath: string;
   notificationsEnabled: boolean;
 };
 
@@ -151,6 +152,16 @@ export function renderSettings(container: HTMLElement, settings: SettingsData): 
         <label for="gracePeriodMs">Grace Period (ms)</label>
         <input type="number" id="gracePeriodMs" name="gracePeriodMs" value="${settings.gracePeriodMs}" min="0" />
       </div>
+      <div class="form-group">
+        <label for="markdownExportPath">Markdown Export Directory</label>
+        <input
+          type="text"
+          id="markdownExportPath"
+          name="markdownExportPath"
+          value="${settings.markdownExportPath}"
+          placeholder="~/act-track-logs"
+        />
+      </div>
       <div class="form-group checkbox">
         <label>
           <input
@@ -194,6 +205,7 @@ function renderDashboardSkeleton(app: HTMLElement): void {
       idleTimeoutMs: 300000,
       notificationCooldownMs: 300000,
       gracePeriodMs: 30000,
+      markdownExportPath: "",
       notificationsEnabled: true,
     });
   }
@@ -246,6 +258,7 @@ function bindSettingsSave(app: HTMLElement): void {
       ["idleTimeoutMs", String(data.get("idleTimeoutMs") ?? "300000")],
       ["notificationCooldownMs", String(data.get("notificationCooldownMs") ?? "300000")],
       ["gracePeriodMs", String(data.get("gracePeriodMs") ?? "30000")],
+      ["markdownExportPath", String(data.get("markdownExportPath") ?? "")],
       ["notificationsEnabled", data.get("notificationsEnabled") ? "true" : "false"],
     ];
 

@@ -8,7 +8,9 @@ ActTrack AI は、PC のアクティブウィンドウ履歴を収集し、Gemin
 - アクティブなアプリ/ウィンドウを一定間隔で収集
 - `productive / distraction / neutral` に自動分類（キャッシュ優先）
 - SQLite にローカル保存してダッシュボードで可視化
+- 注意散漫状態の通知（猶予時間・クールダウン付き）
 - 日次の AI サマリーを生成して保存
+- 日次 Markdown エクスポート（既定: `~/act-track-logs/YYYY-MM-DD.md`）
 - 日次 Markdown 出力の仕様と実装ガイドを `docs/` で提供
 
 ## 特徴とユースケース
@@ -96,6 +98,19 @@ docs/
 - ログはローカル SQLite に保存されます（`data/`）
 - ウィンドウタイトルには機密情報が含まれる可能性があります
 - Gemini 利用時は送信データ範囲を確認し、API キーは `.env` で管理してください
+
+## Tech Stack
+
+- **Electrobun** - Desktop framework (Bun + Zig + WebView)
+- **Bun** - Runtime with FFI, SQLite, and fast startup
+- **Google Gemini 2.0 Flash** - AI classification and summarization
+- **SQLite** - Local data storage (WAL mode)
+
+## Markdown Export
+
+- 日次切り替え時に Markdown エクスポートを実行
+- 出力には AI サマリー / 分類タグ / タイムラインを含む
+- SQLite 生データ（`activity_log`, `daily_summary`）と Markdown 出力を分離
 
 ## ライセンス
 

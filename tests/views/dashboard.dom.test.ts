@@ -79,11 +79,14 @@ describe("dashboard DOM", () => {
       idleTimeoutMs: 300000,
       notificationCooldownMs: 300000,
       gracePeriodMs: 30000,
+      markdownExportPath: "/tmp/act-track-logs",
       notificationsEnabled: true,
     });
 
     const inputs = container.querySelectorAll("input");
     expect(inputs.length).toBeGreaterThanOrEqual(4);
+    expect(container.innerHTML).toContain('id="markdownExportPath"');
+    expect(container.innerHTML).toContain('value="/tmp/act-track-logs"');
   });
 
   it("formatDuration formats milliseconds correctly", () => {
