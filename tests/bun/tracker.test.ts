@@ -42,7 +42,7 @@ describe("tracker normalization", () => {
   });
 
   it("identifies self process as ignored", () => {
-    const raw: RawWindowData = { processPath: "C:\\ActTrackAI\\bun.exe", windowTitle: "ActTrack AI" };
+    const raw: RawWindowData = { processPath: "C:\\ActTrackAIMD\\bun.exe", windowTitle: "ActTrack AI MD" };
     const snap = normalizeSnapshot(raw, "bun.exe");
     expect(snap).toBeNull();
   });
