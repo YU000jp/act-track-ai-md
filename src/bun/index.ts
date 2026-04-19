@@ -7,6 +7,7 @@ import { createSummarizer } from "./summarizer";
 import { createWindowsFFIBindings, isIdle, type TrackerBindings } from "./tracker";
 import { loadAppSettings } from "../shared/settings";
 import type { ActivityCategory } from "../shared/types";
+import { createMemoryStore } from "../lib/memory";
 
 type GeminiClassifyFn = (opts: {
   apiKey: string;
@@ -160,6 +161,8 @@ function loadElectrobun(): ElectrobunLike | null {
 
 export function startApp(): void {
   const datastores = createDatastores("act-track-cache.db", "act-track-activity.db");
+  const memoryStore = createMemoryStore({ dbPath: "act-track-memory.db" });
+  void memoryStore.initialize();
   const settings = loadAppSettings((key) => datastores.getSetting(key));
   const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY || "";
 
@@ -189,7 +192,7 @@ export function startApp(): void {
 
   app.start();
 
-  const summarizer = createSummarizer({ datastores, apiKey });
+  const summarizer = createSummarizer({ datastores, apiKey, memoryStore });
   let lastSeenDay = new Date().toISOString().slice(0, 10);
 
   const runDailyExport = async (date: string) => {

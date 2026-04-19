@@ -99,9 +99,10 @@ Markdown 日報出力は、上記データを整形する `md-exporter` 相当�
 ### 4.2 要約生成フロー
 
 1. 日付ごとの集計値を取得
-2. 上位アプリとカテゴリ情報をプロンプト化
-3. Gemini (`gemini-2.0-flash`) を呼び出し
-4. `daily_summary.ai_summary` に保存
+2. AgentKITS Memory から関連する過去の文脈・スタイルを検索
+3. 上位アプリとカテゴリ情報に Memory コンテキストを加えてプロンプト化（RAG）
+4. Gemini (`gemini-2.0-flash`) を呼び出し
+5. `daily_summary.ai_summary` に保存し、結果を memory に学習データとして保存
 
 ### 4.3 運用上の注意
 

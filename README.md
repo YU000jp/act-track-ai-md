@@ -11,6 +11,7 @@ ActTrack AI MD は、PC のアクティブウィンドウ履歴を収集し、Ge
 - 注意散漫状態の通知（猶予時間・クールダウン付き）
 - 日次の AI サマリーを生成して保存
 - 日次 Markdown エクスポート（既定: `~/act-track-logs/YYYY-MM-DD.md`）
+- AgentKITS Memory 連携による長期記憶（ローカル SQLite）と RAG ベース要約
 - ユーザー定義の分類ルール / AI要約の言語・文体 / Markdown プライバシーモードを設定可能
 - 日次 Markdown 出力の仕様と実装ガイドを `docs/` で提供
 
@@ -21,6 +22,7 @@ ActTrack AI MD は、PC のアクティブウィンドウ履歴を収集し、Ge
 - **AI Classification**: Gemini で活動カテゴリ判定
 - **Cache-First**: 同一ウィンドウ分類の再利用で高速化
 - **Daily AI Summary**: 日次統計から短い振り返りを生成
+- **AgentKITS Memory**: 過去の要約スタイル/文脈/修正フィードバックを記憶し要約に注入
 - **Dashboard**: Today/Statistics/Settings を WebView で表示
 - **Custom Rules & Privacy**: 手動分類ルールと機密タイトル非表示を設定可能
 
@@ -81,6 +83,7 @@ src/
 │   ├── db.ts           # SQLite スキーマ/クエリ
 │   ├── summarizer.ts   # 日次 AI サマリー生成
 │   └── rpc.ts          # ダッシュボード RPC
+├── lib/memory/         # AgentKITS メモリラッパー
 ├── views/dashboard/    # ダッシュボード UI
 └── shared/types.ts     # 共有型
 

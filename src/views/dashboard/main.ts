@@ -1,4 +1,11 @@
-import { DEFAULT_SETTINGS, type ActivityCategory, type AppSettings, type DashboardRPC } from "../../shared/types";
+import {
+  DEFAULT_SETTINGS,
+  type ActivityCategory,
+  type AppSettings,
+  type DashboardRPC,
+  type MemoryRecord,
+  type MemoryStatus,
+} from "../../shared/types";
 import { RESTART_REQUIRED_SETTINGS } from "../../shared/settings";
 import { APP_META } from "../../shared/app-meta";
 import { renderMonthlyTrend, renderWeeklyChart } from "./charts";
@@ -115,6 +122,47 @@ export function renderTopApps(container: HTMLElement, apps: TopApp[]): void {
   `;
 }
 
+function formatMemoryDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString();
+}
+
+function renderMemoryStatus(container: HTMLElement, status: MemoryStatus): void {
+  if (!status.enabled) {
+    container.textContent = "Memory: disabled";
+    return;
+  }
+  container.textContent = `Memory: ${status.total} entries (${status.pinned} pinned) - backend: ${status.backend}`;
+}
+
+function renderMemoryList(container: HTMLElement, memories: MemoryRecord[]): void {
+  if (memories.length === 0) {
+    container.innerHTML = '<div class="empty-state">No memory entries yet</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <ul class="memory-list">
+      ${memories
+        .map(
+          (memory) => `
+        <li class="memory-item" data-memory-id="${memory.id}" data-memory-pinned="${memory.pinned ? "true" : "false"}">
+          <div class="memory-meta">
+            <span class="memory-type">${memory.type}</span>
+            <span class="memory-date">${formatMemoryDate(memory.createdAt)}</span>
+          </div>
+          <div class="memory-content">${escapeHtml(memory.content)}</div>
+          <div class="memory-actions">
+            <button type="button" data-memory-action="pin">${memory.pinned ? "Unpin" : "Pin"}</button>
+            <button type="button" data-memory-action="forget">Forget</button>
+          </div>
+        </li>
+      `,
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -221,6 +269,9 @@ export function renderSettings(container: HTMLElement, settings: AppSettings): v
       <button type="submit" class="btn-save">Save Settings</button>
       <div id="settings-feedback" class="settings-feedback" role="status" aria-live="polite"></div>
       <p class="settings-hint">Restart required for polling, idle timing, and startup behavior changes.</p>
+      <h3>Memory</h3>
+      <div id="memory-status-indicator" class="settings-feedback">Memory: loading...</div>
+      <div id="memory-list-container"></div>
     </form>
   `;
 }
@@ -229,6 +280,7 @@ function renderDashboardSkeleton(app: HTMLElement): void {
   const todayStatsContainer = app.querySelector<HTMLElement>("#today-stats");
   const topAppsContainer = app.querySelector<HTMLElement>("#top-apps");
   const settingsContainer = app.querySelector<HTMLElement>("#settings-content");
+  const summaryFeedbackContainer = app.querySelector<HTMLElement>("#summary-feedback");
   const weeklyChartContainer = app.querySelector<HTMLElement>("#weekly-chart");
   const monthlyTrendContainer = app.querySelector<HTMLElement>("#monthly-trend");
 
@@ -247,6 +299,15 @@ function renderDashboardSkeleton(app: HTMLElement): void {
 
   if (settingsContainer) {
     renderSettings(settingsContainer, DEFAULT_SETTINGS);
+  }
+
+  if (summaryFeedbackContainer) {
+    summaryFeedbackContainer.innerHTML = `
+      <h3>Summary Feedback</h3>
+      <textarea id="summary-feedback-input" rows="4" placeholder="Edit today's AI summary and save to memory"></textarea>
+      <button type="button" id="summary-feedback-save">Save Feedback</button>
+      <div id="summary-feedback-status" class="settings-feedback"></div>
+    `;
   }
 
   if (weeklyChartContainer) {
@@ -272,6 +333,8 @@ async function hydrateFromRPC(app: HTMLElement): Promise<void> {
   const todayStatsContainer = app.querySelector<HTMLElement>("#today-stats");
   const topAppsContainer = app.querySelector<HTMLElement>("#top-apps");
   const settingsContainer = app.querySelector<HTMLElement>("#settings-content");
+  const summaryFeedbackInput = app.querySelector<HTMLTextAreaElement>("#summary-feedback-input");
+  const today = new Date().toISOString().slice(0, 10);
 
   if (todayStatsContainer) {
     renderTodayStats(todayStatsContainer, todaySummary);
@@ -285,6 +348,23 @@ async function hydrateFromRPC(app: HTMLElement): Promise<void> {
     renderSettings(settingsContainer, settings);
     bindSettingsSave(app, settings);
   }
+
+  const memoryStatusContainer = app.querySelector<HTMLElement>("#memory-status-indicator");
+  if (memoryStatusContainer) {
+    const status = await rpc.getMemoryStatus();
+    renderMemoryStatus(memoryStatusContainer, status);
+  }
+  const memoryListContainer = app.querySelector<HTMLElement>("#memory-list-container");
+  if (memoryListContainer) {
+    const memories = await rpc.listMemories(10);
+    renderMemoryList(memoryListContainer, memories);
+  }
+  if (summaryFeedbackInput) {
+    const summary = await rpc.getDailySummary(today);
+    summaryFeedbackInput.value = summary?.aiSummary ?? "";
+  }
+  bindMemoryActions(app);
+  bindSummaryFeedback(app);
 }
 
 function bindSettingsSave(app: HTMLElement, initialSettings: AppSettings = DEFAULT_SETTINGS): void {
@@ -336,6 +416,81 @@ function bindSettingsSave(app: HTMLElement, initialSettings: AppSettings = DEFAU
           : "Saved. Changes are ready to use.";
     }
     currentSettings = nextSettings;
+  });
+}
+
+function bindMemoryActions(app: HTMLElement): void {
+  const container = app.querySelector<HTMLElement>("#memory-list-container");
+  if (!container) {
+    return;
+  }
+  container.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return;
+    }
+    const action = target.getAttribute("data-memory-action");
+    if (!action) {
+      return;
+    }
+    const item = target.closest<HTMLElement>("[data-memory-id]");
+    if (!item) {
+      return;
+    }
+    const id = Number(item.dataset.memoryId ?? "");
+    if (!Number.isFinite(id)) {
+      return;
+    }
+    const rpc = window.dashboardRPC;
+    if (!rpc) {
+      return;
+    }
+    if (action === "forget") {
+      await rpc.forgetMemory(id);
+    } else if (action === "pin") {
+      const isPinned = item.dataset.memoryPinned === "true";
+      await rpc.pinMemory({ id, pinned: !isPinned });
+    }
+    const [status, memories] = await Promise.all([rpc.getMemoryStatus(), rpc.listMemories(10)]);
+    const statusContainer = app.querySelector<HTMLElement>("#memory-status-indicator");
+    const listContainer = app.querySelector<HTMLElement>("#memory-list-container");
+    if (statusContainer) {
+      renderMemoryStatus(statusContainer, status);
+    }
+    if (listContainer) {
+      renderMemoryList(listContainer, memories);
+    }
+  });
+}
+
+function bindSummaryFeedback(app: HTMLElement): void {
+  const button = app.querySelector<HTMLButtonElement>("#summary-feedback-save");
+  const input = app.querySelector<HTMLTextAreaElement>("#summary-feedback-input");
+  const status = app.querySelector<HTMLElement>("#summary-feedback-status");
+  if (!button || !input) {
+    return;
+  }
+
+  button.addEventListener("click", async () => {
+    const rpc = window.dashboardRPC;
+    if (!rpc) {
+      return;
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    const editedSummary = input.value.trim();
+    await rpc.saveSummaryFeedback({ date, editedSummary });
+    if (status) {
+      status.textContent = "Saved as learning feedback.";
+    }
+    const [memoryStatus, memories] = await Promise.all([rpc.getMemoryStatus(), rpc.listMemories(10)]);
+    const statusContainer = app.querySelector<HTMLElement>("#memory-status-indicator");
+    const listContainer = app.querySelector<HTMLElement>("#memory-list-container");
+    if (statusContainer) {
+      renderMemoryStatus(statusContainer, memoryStatus);
+    }
+    if (listContainer) {
+      renderMemoryList(listContainer, memories);
+    }
   });
 }
 
