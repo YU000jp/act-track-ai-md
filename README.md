@@ -60,6 +60,13 @@ bunx tsc --noEmit
 bunx electrobun build --targets=win-x64 --env=dev
 ```
 
+## リリースCI
+
+- GitHub Actions の `.github/workflows/release-windows-x64.yml` で Windows x64 向け Electrobun リリースを作成します
+- `v*` タグを push すると、`bun test` / `bunx tsc --noEmit` / `bunx electrobun build --targets=win-x64` を実行します
+- ビルド成果物は workflow artifact と GitHub Release asset の両方にアップロードされます
+- 手動実行する場合は `workflow_dispatch` で対象タグを指定してください
+
 ## 開発/動作要件
 
 ### Runtime
