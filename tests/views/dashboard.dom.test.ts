@@ -95,6 +95,7 @@ describe("dashboard DOM", () => {
     expect(container.innerHTML).toContain('value="/tmp/act-track-logs"');
     expect(container.innerHTML).toContain('id="classificationRulesJson"');
     expect(container.innerHTML).toContain('id="startInBackground"');
+    expect(container.innerHTML).toContain('id="memory-status-indicator"');
     expect(container.innerHTML).toContain("Restart required");
   });
 

@@ -1,6 +1,7 @@
 import { loadAppSettings } from "../shared/settings";
 import type { DashboardRPC } from "../shared/types";
 import type { Datastores } from "./db";
+import type { MemoryStore } from "../lib/memory";
 
 function dayBoundsFromDate(date: string): { start: number; end: number } {
   const dayStart = new Date(`${date}T00:00:00`).getTime();
@@ -12,7 +13,11 @@ function dayBoundsFromDate(date: string): { start: number; end: number } {
 
 export function createRPCHandlers(
   datastores: Datastores,
-  summarizer?: { generateDailySummary: (date: string) => Promise<void> },
+  summarizer?: {
+    generateDailySummary: (date: string) => Promise<void>;
+    saveSummaryFeedback?: (input: { date: string; editedSummary: string; originalSummary?: string | null }) => Promise<void>;
+  },
+  memoryStore?: MemoryStore,
 ): DashboardRPC["requests"] {
   return {
     async getTodaySummary() {
@@ -58,6 +63,40 @@ export function createRPCHandlers(
         const today = new Date().toISOString().slice(0, 10);
         await summarizer.generateDailySummary(today);
       }
+    },
+
+    async saveSummaryFeedback(input) {
+      if (summarizer?.saveSummaryFeedback) {
+        await summarizer.saveSummaryFeedback(input);
+      }
+    },
+
+    async getMemoryStatus() {
+      if (!memoryStore) {
+        return { enabled: false, backend: "sqlite", total: 0, pinned: 0 };
+      }
+      return memoryStore.getStatus();
+    },
+
+    async listMemories(limit = 20) {
+      if (!memoryStore) {
+        return [];
+      }
+      return memoryStore.recall(limit);
+    },
+
+    async forgetMemory(id) {
+      if (!memoryStore) {
+        return;
+      }
+      await memoryStore.forget(id);
+    },
+
+    async pinMemory(input) {
+      if (!memoryStore) {
+        return;
+      }
+      await memoryStore.pin(input.id, input.pinned);
     },
 
     async toggleTracking() {

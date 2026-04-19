@@ -8,6 +8,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@aitytech/agentkits-memory": "1.0.1",
     "electrobun": "^1.13.1"
   }
 }

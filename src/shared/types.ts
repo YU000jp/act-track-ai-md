@@ -34,6 +34,22 @@ export type DailySummary = {
   aiSummary: string | null;
 };
 
+export type MemoryStatus = {
+  enabled: boolean;
+  backend: "agentkits" | "sqlite";
+  total: number;
+  pinned: number;
+};
+
+export type MemoryRecord = {
+  id: number;
+  type: "pattern" | "context" | "feedback" | "observation";
+  content: string;
+  metadata: Record<string, string>;
+  pinned: boolean;
+  createdAt: number;
+};
+
 export type TrackingState = "productive" | "distracted" | "idle" | "paused";
 
 export type DashboardRPC = {
@@ -51,6 +67,11 @@ export type DashboardRPC = {
     setSetting: (input: { key: string; value: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;
     generateSummaryNow: () => Promise<void>;
+    saveSummaryFeedback: (input: { date: string; editedSummary: string; originalSummary?: string | null }) => Promise<void>;
+    getMemoryStatus: () => Promise<MemoryStatus>;
+    listMemories: (limit?: number) => Promise<MemoryRecord[]>;
+    forgetMemory: (id: number) => Promise<void>;
+    pinMemory: (input: { id: number; pinned: boolean }) => Promise<void>;
     toggleTracking: () => Promise<boolean>;
   };
   messages: {
