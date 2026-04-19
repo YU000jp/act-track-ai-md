@@ -145,7 +145,7 @@ function renderMemoryList(container: HTMLElement, memories: MemoryRecord[]): voi
       ${memories
         .map(
           (memory) => `
-        <li class="memory-item" data-memory-id="${memory.id}">
+        <li class="memory-item" data-memory-id="${memory.id}" data-memory-pinned="${memory.pinned ? "true" : "false"}">
           <div class="memory-meta">
             <span class="memory-type">${memory.type}</span>
             <span class="memory-date">${formatMemoryDate(memory.createdAt)}</span>
@@ -448,7 +448,7 @@ function bindMemoryActions(app: HTMLElement): void {
     if (action === "forget") {
       await rpc.forgetMemory(id);
     } else if (action === "pin") {
-      const isPinned = target.textContent?.trim().toLowerCase() === "unpin";
+      const isPinned = item.dataset.memoryPinned === "true";
       await rpc.pinMemory({ id, pinned: !isPinned });
     }
     const [status, memories] = await Promise.all([rpc.getMemoryStatus(), rpc.listMemories(10)]);

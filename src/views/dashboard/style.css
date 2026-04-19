@@ -5,6 +5,7 @@
   --text: #e2e8f0;
   --text-dim: #94a3b8;
   --border: #2f315f;
+  --border-soft: #2b2e59;
   --productive: #4ade80;
   --distraction: #f87171;
   --neutral: #94a3b8;
@@ -304,7 +305,7 @@ textarea:focus {
 }
 
 .memory-item {
-  border-top: 1px solid #2b2e59;
+  border-top: 1px solid var(--border-soft);
   padding: 10px 0;
 }
 

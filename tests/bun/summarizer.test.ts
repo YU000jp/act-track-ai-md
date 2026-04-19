@@ -101,7 +101,8 @@ describe("createSummarizer", () => {
     expect(summary!.aiSummary).toBe(geminiResponse);
     expect(summary!.productiveMs).toBe(3_600_000);
     expect(summary!.distractionMs).toBe(600_000);
-    expect(memorySaves.length).toBeGreaterThanOrEqual(2);
+    expect(memorySaves.some((entry) => entry.type === "context")).toBe(true);
+    expect(memorySaves.some((entry) => entry.type === "pattern" && entry.content === geminiResponse)).toBe(true);
   });
 
   it("stores summary with stats even if no activities", async () => {

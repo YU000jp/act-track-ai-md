@@ -78,6 +78,7 @@ function scoreContent(content: string, queryTokens: string[]): number {
 }
 
 function toTokens(value: string): string[] {
+  // Split on non-word separators while preserving Latin, Japanese (hiragana/katakana), and CJK ideograph ranges.
   return value
     .toLowerCase()
     .split(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]+/g)
@@ -149,6 +150,10 @@ function maybeWrapAgentkits(mod: unknown): AgentkitsRuntime | null {
 }
 
 export type MemoryStore = ReturnType<typeof createMemoryStore>;
+
+function isMemoryType(value: string): value is MemoryType {
+  return value === "pattern" || value === "context" || value === "feedback" || value === "observation";
+}
 
 export function createMemoryStore(deps: MemoryStoreDeps) {
   const dbPath = deps.dbPath === ":memory:" ? ":memory:" : resolve(deps.dbPath);
@@ -233,15 +238,18 @@ export function createMemoryStore(deps: MemoryStoreDeps) {
   async function search(query: string, limit = 5): Promise<MemorySearchResult[]> {
     if (runtime?.search) {
       const runtimeResults = await runtime.search({ query, limit });
-      return runtimeResults.map((result, index) => ({
-        id: -(index + 1),
-        type: (result.metadata?.type as MemoryType) || "context",
-        content: result.content,
-        metadata: normalizeMetadata(result.metadata),
-        pinned: false,
-        createdAt: Date.now(),
-        score: typeof result.score === "number" ? result.score : 0,
-      }));
+      return runtimeResults.map((result, index) => {
+        const runtimeType = String(result.metadata?.type ?? "");
+        return {
+          id: -(index + 1),
+          type: isMemoryType(runtimeType) ? runtimeType : "context",
+          content: result.content,
+          metadata: normalizeMetadata(result.metadata),
+          pinned: false,
+          createdAt: Date.now(),
+          score: typeof result.score === "number" ? result.score : 0,
+        };
+      });
     }
 
     const queryTokens = toTokens(query);

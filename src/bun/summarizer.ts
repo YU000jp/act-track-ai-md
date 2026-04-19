@@ -79,13 +79,11 @@ export function createSummarizer(deps: SummarizerDeps) {
       aiSummary: edited,
     });
     if (deps.memoryStore) {
+      const originalSummary = input.originalSummary ?? existing.aiSummary;
       await deps.memoryStore.save({
         type: "feedback",
         content: edited,
-        metadata: {
-          date: input.date,
-          originalSummary: input.originalSummary ?? existing.aiSummary ?? "",
-        },
+        metadata: originalSummary ? { date: input.date, originalSummary } : { date: input.date },
       });
       await deps.memoryStore.save({
         type: "pattern",
