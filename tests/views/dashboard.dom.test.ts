@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import "./minidom";
 import {
   formatDuration,
@@ -6,7 +6,7 @@ import {
   renderSettings,
   renderTodayStats,
   renderTopApps,
-} from "../../src/views/dashboard/main";
+} from "../../src/frontend/dashboard/main";
 
 describe("dashboard DOM", () => {
   beforeEach(() => {
@@ -74,7 +74,7 @@ describe("dashboard DOM", () => {
     document.body.appendChild(container);
 
     renderSettings(container, {
-      geminiApiKey: "test-key",
+      geminiApiKeyConfigured: true,
       pollIntervalMs: 3000,
       idleTimeoutMs: 300000,
       notificationCooldownMs: 300000,
@@ -94,8 +94,10 @@ describe("dashboard DOM", () => {
     expect(container.innerHTML).toContain('id="markdownExportPath"');
     expect(container.innerHTML).toContain('value="/tmp/act-track-logs"');
     expect(container.innerHTML).toContain('id="classificationRulesJson"');
+    expect(container.innerHTML).toContain('id="tracking-status-indicator"');
     expect(container.innerHTML).toContain('id="startInBackground"');
     expect(container.innerHTML).toContain('id="memory-status-indicator"');
+    expect(container.innerHTML).toContain("configured");
     expect(container.innerHTML).toContain("Restart required");
   });
 

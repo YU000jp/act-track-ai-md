@@ -1,4 +1,4 @@
-import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppSettings } from "./types";
+import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppSettings } from "./types"
 
 export type ClassificationRule = {
   processNamePattern: string;
@@ -6,8 +6,6 @@ export type ClassificationRule = {
   category: ActivityCategory;
   label: string;
 };
-
-export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof AppSettings>;
 
 export const RESTART_REQUIRED_SETTINGS: Array<keyof AppSettings> = [
   "pollIntervalMs",
@@ -47,9 +45,12 @@ function parseNumberSetting(value: string | null, fallback: number, minValue = 0
   return parsed;
 }
 
-export function loadAppSettings(getSetting: (key: keyof AppSettings) => string | null): AppSettings {
+export function loadAppSettings(
+  getSetting: (key: keyof AppSettings) => string | null,
+  geminiApiKeyConfigured: boolean,
+): AppSettings {
   return {
-    geminiApiKey: getSetting("geminiApiKey") ?? DEFAULT_SETTINGS.geminiApiKey,
+    geminiApiKeyConfigured,
     pollIntervalMs: parseNumberSetting(getSetting("pollIntervalMs"), DEFAULT_SETTINGS.pollIntervalMs, 1),
     idleTimeoutMs: parseNumberSetting(getSetting("idleTimeoutMs"), DEFAULT_SETTINGS.idleTimeoutMs, 1),
     notificationCooldownMs: parseNumberSetting(

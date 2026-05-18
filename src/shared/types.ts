@@ -52,6 +52,11 @@ export type MemoryRecord = {
 
 export type TrackingState = "productive" | "distracted" | "idle" | "paused";
 
+export type TrackingStatus = {
+  running: boolean;
+  state: TrackingState;
+};
+
 export type DashboardRPC = {
   requests: {
     getTodaySummary: () => Promise<{
@@ -64,7 +69,9 @@ export type DashboardRPC = {
     getTimeline: (date: string) => Promise<ActivitySample[]>;
     getDailySummary: (date: string) => Promise<DailySummary | null>;
     getSettings: () => Promise<AppSettings>;
+    getTrackingStatus: () => Promise<TrackingStatus>;
     setSetting: (input: { key: string; value: string }) => Promise<void>;
+    setSettings: (input: { settings: AppSettingsUpdate; geminiApiKey?: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;
     generateSummaryNow: () => Promise<void>;
     saveSummaryFeedback: (input: { date: string; editedSummary: string; originalSummary?: string | null }) => Promise<void>;
@@ -80,7 +87,7 @@ export type DashboardRPC = {
 };
 
 export type AppSettings = {
-  geminiApiKey: string;
+  geminiApiKeyConfigured: boolean;
   pollIntervalMs: number;
   idleTimeoutMs: number;
   notificationCooldownMs: number;
@@ -95,8 +102,10 @@ export type AppSettings = {
   startInBackground: boolean;
 };
 
+export type AppSettingsUpdate = Omit<AppSettings, "geminiApiKeyConfigured">;
+
 export const DEFAULT_SETTINGS: AppSettings = {
-  geminiApiKey: "",
+  geminiApiKeyConfigured: false,
   pollIntervalMs: 3000,
   idleTimeoutMs: 300_000,
   notificationCooldownMs: 300_000,

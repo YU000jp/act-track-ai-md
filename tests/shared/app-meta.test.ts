@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { APP_META } from "../../src/shared/app-meta";
 
 describe("app metadata", () => {

@@ -1,14 +1,22 @@
 {
   "name": "act-track-ai-md",
   "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "build:frontend": "node scripts/build-frontend.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
   },
   "dependencies": {
-    "@aitytech/agentkits-memory": "1.0.1",
-    "electrobun": "^1.13.1"
+    "@tauri-apps/api": "^2.11.0"
   }
 }

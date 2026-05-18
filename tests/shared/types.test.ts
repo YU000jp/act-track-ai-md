@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_CATEGORIES,
   type ActivityCategory,
@@ -66,5 +66,6 @@ describe("shared types", () => {
     expect(mod.DEFAULT_SETTINGS.summaryTone).toBe("encouraging");
     expect(mod.DEFAULT_SETTINGS.markdownPrivacyMode).toBe(false);
     expect(mod.DEFAULT_SETTINGS.startInBackground).toBe(true);
+    expect(mod.DEFAULT_SETTINGS.geminiApiKeyConfigured).toBe(false);
   });
 });

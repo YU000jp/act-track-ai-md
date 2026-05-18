@@ -1,0 +1,20 @@
+[[permission]]
+identifier = "app-commands"
+description = "Allow the dashboard window to call the application's Tauri commands."
+commands.allow = [
+  "get_today_summary",
+  "get_top_apps",
+  "get_timeline",
+  "get_daily_summary",
+  "get_settings",
+  "get_tracking_status",
+  "set_setting",
+  "get_setting",
+  "generate_summary_now",
+  "save_summary_feedback",
+  "get_memory_status",
+  "list_memories",
+  "forget_memory",
+  "pin_memory",
+  "toggle_tracking"
+]

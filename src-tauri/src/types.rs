@@ -1,0 +1,109 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityCategory {
+    Productive,
+    Distraction,
+    Neutral,
+    Unknown,
+}
+
+impl ActivityCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Productive => "productive",
+            Self::Distraction => "distraction",
+            Self::Neutral => "neutral",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationResult {
+    pub category: ActivityCategory,
+    pub label: String,
+    pub confidence: f64,
+    pub source: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowSnapshot {
+    pub process_name: String,
+    pub window_title: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivitySample {
+    pub id: i64,
+    pub timestamp: i64,
+    pub process_name: String,
+    pub window_title: String,
+    pub duration_ms: i64,
+    pub category: ActivityCategory,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailySummary {
+    pub date: String,
+    pub total_tracked_ms: i64,
+    pub productive_ms: i64,
+    pub distraction_ms: i64,
+    pub neutral_ms: i64,
+    pub top_apps: Vec<TopApp>,
+    pub ai_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopApp {
+    pub process_name: String,
+    pub duration_ms: i64,
+    pub category: ActivityCategory,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemoryStatus {
+    pub enabled: bool,
+    pub backend: String,
+    pub total: usize,
+    pub pinned: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemoryRecord {
+    pub id: i64,
+    #[serde(rename = "type")]
+    pub memory_type: String,
+    pub content: String,
+    pub metadata: std::collections::HashMap<String, String>,
+    pub pinned: bool,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackingState {
+    Productive,
+    Distracted,
+    Idle,
+    Paused,
+}
+
+impl TrackingState {
+    #[allow(dead_code)]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Productive => "productive",
+            Self::Distracted => "distracted",
+            Self::Idle => "idle",
+            Self::Paused => "paused",
+        }
+    }
+}

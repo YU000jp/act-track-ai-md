@@ -1,8 +1,8 @@
-# App naming policy (temporary)
+# App naming policy
 
-The current app name is **provisional** and may be renamed again.
+The current app name is provisional and may change again.
 
-## Canonical app name (current)
+## Canonical app name
 
 - Display name: `ActTrack AI MD`
 - Package name: `act-track-ai-md`
@@ -13,9 +13,9 @@ The current app name is **provisional** and may be renamed again.
 
 - `src/shared/app-meta.ts` (primary source)
 - `package.json`
-- `bun.lock`
-- `electrobun.config.ts`
-- `src/views/dashboard/index.html`
+- `pnpm-lock.yaml`
+- `src-tauri/tauri.conf.json`
+- `src/frontend/dashboard/index.html`
 - `README.md`
 - `docs/` user-facing references
 
