@@ -55,6 +55,7 @@ pub fn save_gemini_api_key(store: &dyn GeminiKeyStore, value: &str) -> anyhow::R
 pub fn migrate_legacy_gemini_api_key(datastores: &Datastores, store: &dyn GeminiKeyStore) -> anyhow::Result<()> {
     let legacy_value = datastores
         .get_setting("geminiApiKey")
+        .context("read legacy Gemini API key")?
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
@@ -62,9 +63,9 @@ pub fn migrate_legacy_gemini_api_key(datastores: &Datastores, store: &dyn Gemini
         if store.read()?.is_none() {
             store.write(&value)?;
         }
-        datastores.delete_setting("geminiApiKey");
+        datastores.delete_setting("geminiApiKey")?;
     } else {
-        datastores.delete_setting("geminiApiKey");
+        datastores.delete_setting("geminiApiKey")?;
     }
 
     Ok(())
@@ -109,13 +110,13 @@ mod tests {
     #[test]
     fn migration_moves_legacy_key_into_secure_store_and_clears_sqlite() {
         let (datastores, temp_dir) = create_test_datastores();
-        datastores.set_setting("geminiApiKey", "legacy-key");
+        datastores.set_setting("geminiApiKey", "legacy-key").expect("seed legacy key");
         let store = MemoryGeminiKeyStore::default();
 
         migrate_legacy_gemini_api_key(&datastores, &store).expect("migrate");
 
         assert_eq!(store.read().expect("read store"), Some("legacy-key".to_string()));
-        assert_eq!(datastores.get_setting("geminiApiKey"), None);
+        assert_eq!(datastores.get_setting("geminiApiKey").expect("read legacy key"), None);
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }

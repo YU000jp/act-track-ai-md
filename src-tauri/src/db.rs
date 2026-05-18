@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, types::Type, Connection, OptionalExtension};
 
 use crate::types::{ActivityCategory, ActivitySample, DailySummary, TopApp};
 
@@ -148,33 +148,38 @@ impl Datastores {
         let _ = self.cache.execute("DELETE FROM classification_cache", []);
     }
 
-    pub fn insert_activity_sample(&self, sample: ActivityInsert) -> i64 {
-        let _ = self.activity.execute(
-            "INSERT INTO activity_log (timestamp, process_name, window_title, category, label) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                sample.timestamp,
-                sample.process_name,
-                sample.window_title,
-                sample.category.as_str(),
-                sample.label,
-            ],
-        );
-        self.activity.last_insert_rowid()
+    pub fn insert_activity_sample(&self, sample: ActivityInsert) -> anyhow::Result<i64> {
+        self.activity
+            .execute(
+                "INSERT INTO activity_log (timestamp, process_name, window_title, category, label) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    sample.timestamp,
+                    sample.process_name,
+                    sample.window_title,
+                    sample.category.as_str(),
+                    sample.label,
+                ],
+            )
+            .with_context(|| "insert activity sample".to_string())?;
+        Ok(self.activity.last_insert_rowid())
     }
 
-    pub fn set_activity_duration(&self, id: i64, duration_ms: i64) {
-        let _ = self.activity.execute(
-            "UPDATE activity_log SET duration_ms = ?1 WHERE id = ?2",
-            params![duration_ms, id],
-        );
+    pub fn set_activity_duration(&self, id: i64, duration_ms: i64) -> anyhow::Result<()> {
+        self.activity
+            .execute(
+                "UPDATE activity_log SET duration_ms = ?1 WHERE id = ?2",
+                params![duration_ms, id],
+            )
+            .with_context(|| format!("update duration for activity {id}"))?;
+        Ok(())
     }
 
-    pub fn get_activity_range(&self, from_ms: i64, to_ms: i64) -> Vec<ActivitySample> {
+    pub fn get_activity_range(&self, from_ms: i64, to_ms: i64) -> anyhow::Result<Vec<ActivitySample>> {
         let mut stmt = match self.activity.prepare(
             "SELECT id, timestamp, process_name, window_title, category, label, duration_ms FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 ORDER BY timestamp",
         ) {
             Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
+            Err(error) => return Err(error).with_context(|| format!("prepare activity range query {from_ms}..{to_ms}")),
         };
 
         let rows = match stmt.query_map(params![from_ms, to_ms], |row| {
@@ -194,13 +199,15 @@ impl Datastores {
             })
         }) {
             Ok(rows) => rows,
-            Err(_) => return Vec::new(),
+            Err(error) => return Err(error).with_context(|| format!("query activity range {from_ms}..{to_ms}")),
         };
 
-        rows.filter_map(Result::ok).collect()
+        rows
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("collect activity range {from_ms}..{to_ms}"))
     }
 
-    pub fn get_stats_for_day(&self, date_str: &str) -> (i64, i64, i64, i64) {
+    pub fn get_stats_for_day(&self, date_str: &str) -> anyhow::Result<(i64, i64, i64, i64)> {
         let (start, end) = day_bounds(date_str);
         let mut total = 0;
         let mut productive = 0;
@@ -211,17 +218,20 @@ impl Datastores {
             "SELECT category, COALESCE(SUM(duration_ms), 0) AS total FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 GROUP BY category",
         ) {
             Ok(stmt) => stmt,
-            Err(_) => return (0, 0, 0, 0),
+            Err(error) => return Err(error).with_context(|| format!("prepare stats query for {date_str}")),
         };
 
         let rows = match stmt.query_map(params![start, end], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         }) {
             Ok(rows) => rows,
-            Err(_) => return (0, 0, 0, 0),
+            Err(error) => return Err(error).with_context(|| format!("query stats for {date_str}")),
         };
 
-        for row in rows.flatten() {
+        for row in rows
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("collect stats for {date_str}"))?
+        {
             total += row.1;
             match row.0.as_str() {
                 "productive" => productive = row.1,
@@ -231,16 +241,16 @@ impl Datastores {
             }
         }
 
-        (total, productive, distraction, neutral)
+        Ok((total, productive, distraction, neutral))
     }
 
-    pub fn get_top_apps_for_day(&self, date_str: &str, limit: i64) -> Vec<TopApp> {
+    pub fn get_top_apps_for_day(&self, date_str: &str, limit: i64) -> anyhow::Result<Vec<TopApp>> {
         let (start, end) = day_bounds(date_str);
         let mut stmt = match self.activity.prepare(
             "SELECT process_name, COALESCE(SUM(duration_ms), 0) AS total, category FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 GROUP BY process_name ORDER BY total DESC LIMIT ?3",
         ) {
             Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
+            Err(error) => return Err(error).with_context(|| format!("prepare top apps query for {date_str}")),
         };
 
         let rows = match stmt.query_map(params![start, end, limit], |row| {
@@ -256,13 +266,15 @@ impl Datastores {
             })
         }) {
             Ok(rows) => rows,
-            Err(_) => return Vec::new(),
+            Err(error) => return Err(error).with_context(|| format!("query top apps for {date_str}")),
         };
 
-        rows.filter_map(Result::ok).collect()
+        rows
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("collect top apps for {date_str}"))
     }
 
-    pub fn get_setting(&self, key: &str) -> Option<String> {
+    pub fn get_setting(&self, key: &str) -> anyhow::Result<Option<String>> {
         self.activity
             .query_row(
                 "SELECT value FROM settings WHERE key = ?1",
@@ -270,44 +282,56 @@ impl Datastores {
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .ok()
-            .flatten()
+            .with_context(|| format!("read setting {key}"))
     }
 
-    pub fn set_setting(&self, key: &str, value: &str) {
-        let _ = self.activity.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![key, value],
-        );
+    pub fn set_setting(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.activity
+            .execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .with_context(|| format!("save setting {key}"))?;
+        Ok(())
     }
 
-    pub fn delete_setting(&self, key: &str) {
-        let _ = self.activity.execute("DELETE FROM settings WHERE key = ?1", params![key]);
+    pub fn delete_setting(&self, key: &str) -> anyhow::Result<()> {
+        self.activity
+            .execute("DELETE FROM settings WHERE key = ?1", params![key])
+            .with_context(|| format!("delete setting {key}"))?;
+        Ok(())
     }
 
-    pub fn save_daily_summary(&self, summary: &DailySummary) {
-        let _ = self.activity.execute(
-            "INSERT INTO daily_summary (date, total_tracked_ms, productive_ms, distraction_ms, neutral_ms, top_apps, ai_summary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(date) DO UPDATE SET total_tracked_ms = excluded.total_tracked_ms, productive_ms = excluded.productive_ms, distraction_ms = excluded.distraction_ms, neutral_ms = excluded.neutral_ms, top_apps = excluded.top_apps, ai_summary = excluded.ai_summary",
-            params![
-                summary.date,
-                summary.total_tracked_ms,
-                summary.productive_ms,
-                summary.distraction_ms,
-                summary.neutral_ms,
-                serde_json::to_string(&summary.top_apps).unwrap_or_else(|_| "[]".to_string()),
-                summary.ai_summary,
-            ],
-        );
+    pub fn save_daily_summary(&self, summary: &DailySummary) -> anyhow::Result<()> {
+        let top_apps = serde_json::to_string(&summary.top_apps)
+            .with_context(|| format!("serialize top apps for {}", summary.date))?;
+        self.activity
+            .execute(
+                "INSERT INTO daily_summary (date, total_tracked_ms, productive_ms, distraction_ms, neutral_ms, top_apps, ai_summary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(date) DO UPDATE SET total_tracked_ms = excluded.total_tracked_ms, productive_ms = excluded.productive_ms, distraction_ms = excluded.distraction_ms, neutral_ms = excluded.neutral_ms, top_apps = excluded.top_apps, ai_summary = excluded.ai_summary",
+                params![
+                    summary.date,
+                    summary.total_tracked_ms,
+                    summary.productive_ms,
+                    summary.distraction_ms,
+                    summary.neutral_ms,
+                    top_apps,
+                    summary.ai_summary,
+                ],
+            )
+            .with_context(|| format!("save daily summary for {}", summary.date))?;
+        Ok(())
     }
 
-    pub fn get_daily_summary(&self, date_str: &str) -> Option<DailySummary> {
+    pub fn get_daily_summary(&self, date_str: &str) -> anyhow::Result<Option<DailySummary>> {
         self.activity
             .query_row(
                 "SELECT date, total_tracked_ms, productive_ms, distraction_ms, neutral_ms, top_apps, ai_summary FROM daily_summary WHERE date = ?1",
                 params![date_str],
                 |row| {
                     let top_apps_json: String = row.get(5)?;
-                    let top_apps = serde_json::from_str::<Vec<TopApp>>(&top_apps_json).unwrap_or_default();
+                    let top_apps = serde_json::from_str::<Vec<TopApp>>(&top_apps_json).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(error))
+                    })?;
                     Ok(DailySummary {
                         date: row.get(0)?,
                         total_tracked_ms: row.get(1)?,
@@ -320,8 +344,7 @@ impl Datastores {
                 },
             )
             .optional()
-            .ok()
-            .flatten()
+            .with_context(|| format!("read daily summary for {date_str}"))
     }
 
     pub fn get_day_bounds(date_str: &str) -> (i64, i64) {

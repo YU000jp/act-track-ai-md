@@ -2,6 +2,7 @@
 
 mod app;
 mod app_meta;
+mod error;
 mod classifier;
 mod db;
 mod gemini;
@@ -20,6 +21,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_log::{Target, TargetKind};
 
 use app::{
     create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_daily_summary,
@@ -34,7 +36,12 @@ use settings::parse_classification_rules;
 use secrets::{gemini_api_key_configured, migrate_legacy_gemini_api_key, SystemGeminiKeyStore};
 
 fn main() {
-    tauri::Builder::default()
+    let run_result = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(Target::new(TargetKind::Webview))
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -65,15 +72,15 @@ fn main() {
             let datastores = Datastores::open(&data_dir.join("act-track-cache.db"), &data_dir.join("act-track-activity.db"))?;
             let memory_store = MemoryStore::open(&data_dir.join("act-track-memory.db"))?;
             memory_store.initialize();
-            let tracking_enabled = load_tracking_enabled(&datastores);
+            let tracking_enabled = load_tracking_enabled(&datastores)?;
 
             if let Err(error) = migrate_legacy_gemini_api_key(&datastores, &SystemGeminiKeyStore) {
-                eprintln!("failed to migrate Gemini API key: {error}");
+                log::warn!("failed to migrate Gemini API key: {error}");
             }
 
             let settings = {
                 let configured = gemini_api_key_configured(&SystemGeminiKeyStore).unwrap_or(false);
-                settings::load_app_settings(|key| datastores.get_setting(key), configured)
+                settings::load_app_settings(|key| datastores.get_setting(key), configured)?
             };
             let classification_rules =
                 parse_classification_rules(Some(settings.classification_rules_json.as_str()));
@@ -148,6 +155,10 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(error) = run_result {
+        log::error!("error while running tauri application: {error}");
+        std::process::exit(1);
+    }
 }

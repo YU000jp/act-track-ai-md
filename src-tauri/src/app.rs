@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::app_meta::PACKAGE_NAME;
+use crate::error::{AppError, AppResult};
 use crate::db::{ActivityInsert, Datastores};
 use crate::markdown;
 use crate::memory::MemoryStore;
@@ -142,8 +143,18 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
 
         loop {
             let settings = {
-                let datastores = state.datastores.lock().expect("datastores lock");
-                load_app_settings(|key| datastores.get_setting(key), false)
+                match state.datastores.lock() {
+                    Ok(datastores) => load_app_settings(|key| datastores.get_setting(key), false)
+                        .unwrap_or_else(|error| {
+                            log::warn!("failed to load background settings: {error}");
+                            AppSettings::default()
+                        }),
+                    Err(error) => {
+                        log::error!("failed to lock datastores for background settings: {error}");
+                        thread::sleep(Duration::from_millis(1000));
+                        continue;
+                    }
+                }
             };
             let poll_ms = settings.poll_interval_ms.max(1) as u64;
             let tracking_enabled = state.tracking_enabled.load(Ordering::Relaxed);
@@ -163,20 +174,35 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                             {
                                 let duration_ms = (timestamp - previous.timestamp).max(0);
                                 if let Ok(datastores) = state.datastores.lock() {
-                                    datastores.set_activity_duration(previous.id, duration_ms);
+                                    if let Err(error) = datastores.set_activity_duration(previous.id, duration_ms) {
+                                        log::warn!("failed to update activity duration: {error}");
+                                    }
+                                } else {
+                                    log::warn!("failed to lock datastores for duration update");
                                 }
                             }
                         }
 
                         let id = {
-                            let datastores = state.datastores.lock().expect("datastores lock");
-                            datastores.insert_activity_sample(ActivityInsert {
-                                timestamp,
-                                process_name: snapshot.process_name.clone(),
-                                window_title: snapshot.window_title.clone(),
-                                category: classification.category,
-                                label: classification.label.clone(),
-                            })
+                            match state.datastores.lock() {
+                                Ok(datastores) => match datastores.insert_activity_sample(ActivityInsert {
+                                    timestamp,
+                                    process_name: snapshot.process_name.clone(),
+                                    window_title: snapshot.window_title.clone(),
+                                    category: classification.category,
+                                    label: classification.label.clone(),
+                                }) {
+                                    Ok(id) => id,
+                                    Err(error) => {
+                                        log::error!("failed to insert activity sample: {error}");
+                                        continue;
+                                    }
+                                },
+                                Err(error) => {
+                                    log::error!("failed to lock datastores for activity insert: {error}");
+                                    continue;
+                                }
+                            }
                         };
 
                         previous_sample = Some(PreviousSample {
@@ -212,7 +238,9 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
             let today = current_day_string();
             if today != last_seen_day {
                 let previous_day = previous_day_string(&today);
-                let _ = run_daily_export(&state, &previous_day);
+                if let Err(error) = run_daily_export(&state, &previous_day) {
+                    log::warn!("daily export failed for {previous_day}: {error}");
+                }
                 last_seen_day = today;
             }
 
@@ -222,10 +250,15 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
 }
 
 #[tauri::command]
-pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> Result<TodaySummary, String> {
+pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> AppResult<TodaySummary> {
     let today = current_day_string();
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    let (tracked_ms, productive_ms, distraction_ms, neutral_ms) = datastores.get_stats_for_day(&today);
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_today_summary", "lock datastores for today's summary", error))?;
+    let (tracked_ms, productive_ms, distraction_ms, neutral_ms) = datastores
+        .get_stats_for_day(&today)
+        .map_err(|error| AppError::database_for("get_today_summary", format!("read today's summary stats: {error}")))?;
 
     Ok(TodaySummary {
         tracked_ms,
@@ -236,34 +269,58 @@ pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> Result<TodaySummary
 }
 
 #[tauri::command]
-pub fn get_top_apps(state: State<'_, Arc<AppState>>) -> Result<Vec<TopApp>, String> {
+pub fn get_top_apps(state: State<'_, Arc<AppState>>) -> AppResult<Vec<TopApp>> {
     let today = current_day_string();
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    Ok(datastores.get_top_apps_for_day(&today, 10))
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_top_apps", "lock datastores for top apps", error))?;
+    let top_apps = datastores
+        .get_top_apps_for_day(&today, 10)
+        .map_err(|error| AppError::database_for("get_top_apps", format!("read today's top apps: {error}")))?;
+    Ok(top_apps)
 }
 
 #[tauri::command]
-pub fn get_timeline(date: String, state: State<'_, Arc<AppState>>) -> Result<Vec<ActivitySample>, String> {
+pub fn get_timeline(date: String, state: State<'_, Arc<AppState>>) -> AppResult<Vec<ActivitySample>> {
     let (start, end) = Datastores::get_day_bounds(&date);
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    Ok(datastores.get_activity_range(start, end))
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_timeline", "lock datastores for timeline", error))?;
+    let activity = datastores
+        .get_activity_range(start, end)
+        .map_err(|error| AppError::database_for("get_timeline", format!("read activity range for {date}: {error}")))?;
+    Ok(activity)
 }
 
 #[tauri::command]
-pub fn get_daily_summary(date: String, state: State<'_, Arc<AppState>>) -> Result<Option<DailySummary>, String> {
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    Ok(datastores.get_daily_summary(&date))
+pub fn get_daily_summary(date: String, state: State<'_, Arc<AppState>>) -> AppResult<Option<DailySummary>> {
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_daily_summary", "lock datastores for daily summary", error))?;
+    let summary = datastores
+        .get_daily_summary(&date)
+        .map_err(|error| AppError::database_for("get_daily_summary", format!("read daily summary for {date}: {error}")))?;
+    Ok(summary)
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, Arc<AppState>>) -> Result<AppSettings, String> {
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    let configured = gemini_api_key_configured(&SystemGeminiKeyStore).unwrap_or(false);
-    Ok(load_app_settings(|key| datastores.get_setting(key), configured))
+pub fn get_settings(state: State<'_, Arc<AppState>>) -> AppResult<AppSettings> {
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_settings", "lock datastores for settings", error))?;
+    let configured = gemini_api_key_configured(&SystemGeminiKeyStore)
+        .map_err(|error| AppError::keyring_for("get_settings", format!("read Gemini API key status: {error}")))?;
+    let settings = load_app_settings(|key| datastores.get_setting(key), configured)
+        .map_err(|error| AppError::settings_for("get_settings", format!("load app settings: {error}")))?;
+    Ok(settings)
 }
 
 #[tauri::command]
-pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> Result<TrackingStatus, String> {
+pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> AppResult<TrackingStatus> {
     let running = state.tracking_enabled.load(Ordering::Relaxed);
     Ok(TrackingStatus {
         running,
@@ -272,7 +329,7 @@ pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> Result<TrackingSt
 }
 
 #[tauri::command]
-pub fn set_setting(input: SettingInput, app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub fn set_setting(input: SettingInput, app: AppHandle, state: State<'_, Arc<AppState>>) -> AppResult<()> {
     apply_setting_change(&app, &state, &input.key, &input.value)
 }
 
@@ -284,94 +341,141 @@ pub struct SettingsUpdateInput {
 }
 
 #[tauri::command]
-pub fn set_settings(input: SettingsUpdateInput, app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    persist_settings(&state, &input.settings).map_err(|error| error.to_string())?;
+pub fn set_settings(input: SettingsUpdateInput, app: AppHandle, state: State<'_, Arc<AppState>>) -> AppResult<()> {
+    persist_settings(&state, &input.settings)?;
 
     state.update_classification_rules(&input.settings.classification_rules_json);
     apply_autostart(&app, input.settings.auto_start)?;
 
     if let Some(gemini_api_key) = input.gemini_api_key.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        save_gemini_api_key(&SystemGeminiKeyStore, gemini_api_key).map_err(|error| error.to_string())?;
+        save_gemini_api_key(&SystemGeminiKeyStore, gemini_api_key)
+            .map_err(|error| AppError::keyring_for("set_settings", format!("save Gemini API key: {error}")))?;
     }
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_setting(key: String, state: State<'_, Arc<AppState>>) -> Result<Option<String>, String> {
+pub fn get_setting(key: String, state: State<'_, Arc<AppState>>) -> AppResult<Option<String>> {
     if key == "geminiApiKey" {
         return Ok(None);
     }
 
-    let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    Ok(datastores.get_setting(&key))
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_setting", "lock datastores for setting read", error))?;
+    let setting = datastores
+        .get_setting(&key)
+        .map_err(|error| AppError::settings_for("get_setting", format!("read setting {key}: {error}")))?;
+    Ok(setting)
 }
 
 #[tauri::command]
-pub fn generate_summary_now(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub fn generate_summary_now(state: State<'_, Arc<AppState>>) -> AppResult<summarizer::SummaryGenerationReport> {
     let today = current_day_string();
-    let mut datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+    let mut datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("generate_summary_now", "lock datastores for summary generation", error))?;
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("generate_summary_now", "lock memory store for summary generation", error))?;
     let api_key = active_api_key();
-    let summary = summarizer::generate_daily_summary(&mut datastores, &api_key, Some(&memory_store), &today)?;
-    let _ = markdown::export_day(&datastores, &today);
-    let _ = summary;
-    Ok(())
+    let report = summarizer::generate_daily_summary("generate_summary_now", &mut datastores, &api_key, Some(&memory_store), &today)?;
+    if let Some(error) = &report.ai_summary_error {
+        log::warn!("daily summary generated without AI output: {error}");
+    }
+    if let Err(error) = markdown::export_day(&datastores, &today) {
+        log::warn!("markdown export failed for {today}: {error}");
+    }
+    Ok(report)
 }
 
 #[tauri::command]
-pub fn save_summary_feedback(input: SaveSummaryFeedbackInput, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let mut datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+pub fn save_summary_feedback(input: SaveSummaryFeedbackInput, state: State<'_, Arc<AppState>>) -> AppResult<()> {
+    let mut datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("save_summary_feedback", "lock datastores for summary feedback", error))?;
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("save_summary_feedback", "lock memory store for summary feedback", error))?;
     summarizer::save_summary_feedback(
+        "save_summary_feedback",
         &mut datastores,
         Some(&memory_store),
         &input.date,
         &input.edited_summary,
         input.original_summary.as_deref(),
-    );
+    )?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_memory_status(state: State<'_, Arc<AppState>>) -> Result<MemoryStatus, String> {
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+pub fn get_memory_status(state: State<'_, Arc<AppState>>) -> AppResult<MemoryStatus> {
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("get_memory_status", "lock memory store for status", error))?;
     Ok(memory_store.get_status())
 }
 
 #[tauri::command]
-pub fn list_memories(limit: Option<usize>, state: State<'_, Arc<AppState>>) -> Result<Vec<MemoryRecord>, String> {
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+pub fn list_memories(limit: Option<usize>, state: State<'_, Arc<AppState>>) -> AppResult<Vec<MemoryRecord>> {
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("list_memories", "lock memory store for recall", error))?;
     Ok(memory_store.recall(limit.unwrap_or(20)))
 }
 
 #[tauri::command]
-pub fn forget_memory(id: i64, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+pub fn forget_memory(id: i64, state: State<'_, Arc<AppState>>) -> AppResult<()> {
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("forget_memory", "lock memory store for forget", error))?;
     memory_store.forget(id);
     Ok(())
 }
 
 #[tauri::command]
-pub fn pin_memory(input: PinMemoryInput, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+pub fn pin_memory(input: PinMemoryInput, state: State<'_, Arc<AppState>>) -> AppResult<()> {
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("pin_memory", "lock memory store for pin", error))?;
     memory_store.pin(input.id, input.pinned);
     Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_tracking(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<bool, String> {
+pub fn toggle_tracking(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppResult<bool> {
     let current = state.tracking_enabled.load(Ordering::Relaxed);
     let enabled = !current;
     set_tracking_enabled(&app, &state, enabled)
 }
 
-fn run_daily_export(state: &Arc<AppState>, date: &str) -> Result<(), String> {
-    let mut datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-    let memory_store = state.memory_store.lock().map_err(|error| error.to_string())?;
+fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
+    let mut datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("daily_export", "lock datastores for daily export", error))?;
+    let memory_store = state
+        .memory_store
+        .lock()
+        .map_err(|error| lock_error("daily_export", "lock memory store for daily export", error))?;
     let api_key = active_api_key();
-    let _ = summarizer::generate_daily_summary(&mut datastores, &api_key, Some(&memory_store), date)?;
-    let _ = markdown::export_day(&datastores, date);
+    let report = summarizer::generate_daily_summary("daily_export", &mut datastores, &api_key, Some(&memory_store), date)?;
+    if let Some(error) = &report.ai_summary_error {
+        log::warn!("daily export completed without AI output for {date}: {error}");
+    }
+    if let Err(error) = markdown::export_day(&datastores, date) {
+        log::warn!("markdown export failed for {date}: {error}");
+    }
     Ok(())
 }
 
@@ -391,20 +495,27 @@ fn previous_day_string(today: &str) -> String {
     (date - chrono::Days::new(1)).format("%Y-%m-%d").to_string()
 }
 
-fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+fn apply_autostart(app: &AppHandle, enabled: bool) -> AppResult<()> {
     use tauri_plugin_autostart::ManagerExt;
 
     let manager = app.autolaunch();
     if enabled {
-        manager.enable().map_err(|error| error.to_string())?;
+        manager
+            .enable()
+            .map_err(|error| AppError::settings_for("set_settings", format!("enable autostart: {error}")))?;
     } else {
-        manager.disable().map_err(|error| error.to_string())?;
+        manager
+            .disable()
+            .map_err(|error| AppError::settings_for("set_settings", format!("disable autostart: {error}")))?;
     }
     Ok(())
 }
 
-pub fn load_tracking_enabled(datastores: &Datastores) -> bool {
-    parse_bool_setting(datastores.get_setting(TRACKING_ENABLED_SETTING_KEY).as_deref(), true)
+pub fn load_tracking_enabled(datastores: &Datastores) -> AppResult<bool> {
+    let value = datastores
+        .get_setting(TRACKING_ENABLED_SETTING_KEY)
+        .map_err(|error| AppError::settings_for("load_tracking_enabled", format!("read tracking enabled: {error}")))?;
+    Ok(parse_bool_setting(value.as_deref(), true))
 }
 
 pub fn emit_tracking_status(app: &AppHandle, running: bool) {
@@ -421,7 +532,7 @@ pub(crate) fn set_tracking_enabled(
     app: &AppHandle,
     state: &State<'_, Arc<AppState>>,
     enabled: bool,
-) -> Result<bool, String> {
+) -> AppResult<bool> {
     set_tracking_enabled_inner(app, &**state, enabled)
 }
 
@@ -429,7 +540,7 @@ pub(crate) fn set_tracking_enabled_on_state(
     app: &AppHandle,
     state: &AppState,
     enabled: bool,
-) -> Result<bool, String> {
+) -> AppResult<bool> {
     set_tracking_enabled_inner(app, state, enabled)
 }
 
@@ -437,10 +548,13 @@ fn set_tracking_enabled_inner(
     app: &AppHandle,
     state: &AppState,
     enabled: bool,
-) -> Result<bool, String> {
+) -> AppResult<bool> {
     {
-        let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-        datastores.set_setting(TRACKING_ENABLED_SETTING_KEY, if enabled { "true" } else { "false" });
+        let datastores = state
+            .datastores
+            .lock()
+            .map_err(|error| lock_error("toggle_tracking", "lock datastores for tracking toggle", error))?;
+        datastores.set_setting(TRACKING_ENABLED_SETTING_KEY, if enabled { "true" } else { "false" })?;
     }
 
     state.tracking_enabled.store(enabled, Ordering::Relaxed);
@@ -448,35 +562,39 @@ fn set_tracking_enabled_inner(
     Ok(enabled)
 }
 
-fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate) -> Result<(), anyhow::Error> {
-    let datastores = state.datastores.lock().map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    datastores.set_setting("pollIntervalMs", &settings.poll_interval_ms.to_string());
-    datastores.set_setting("idleTimeoutMs", &settings.idle_timeout_ms.to_string());
-    datastores.set_setting("notificationCooldownMs", &settings.notification_cooldown_ms.to_string());
-    datastores.set_setting("gracePeriodMs", &settings.grace_period_ms.to_string());
-    datastores.set_setting("markdownExportPath", &settings.markdown_export_path);
+fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate) -> AppResult<()> {
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("set_settings", "lock datastores for settings save", error))?;
+    datastores.set_setting("pollIntervalMs", &settings.poll_interval_ms.to_string())?;
+    datastores.set_setting("idleTimeoutMs", &settings.idle_timeout_ms.to_string())?;
+    datastores.set_setting("notificationCooldownMs", &settings.notification_cooldown_ms.to_string())?;
+    datastores.set_setting("gracePeriodMs", &settings.grace_period_ms.to_string())?;
+    datastores.set_setting("markdownExportPath", &settings.markdown_export_path)?;
     datastores.set_setting(
         "notificationsEnabled",
         if settings.notifications_enabled { "true" } else { "false" },
-    );
-    datastores.set_setting("autoStart", if settings.auto_start { "true" } else { "false" });
-    datastores.set_setting("classificationRulesJson", &settings.classification_rules_json);
-    datastores.set_setting("summaryLanguage", &settings.summary_language);
-    datastores.set_setting("summaryTone", &settings.summary_tone);
+    )?;
+    datastores.set_setting("autoStart", if settings.auto_start { "true" } else { "false" })?;
+    datastores.set_setting("classificationRulesJson", &settings.classification_rules_json)?;
+    datastores.set_setting("summaryLanguage", &settings.summary_language)?;
+    datastores.set_setting("summaryTone", &settings.summary_tone)?;
     datastores.set_setting(
         "markdownPrivacyMode",
         if settings.markdown_privacy_mode { "true" } else { "false" },
-    );
+    )?;
     datastores.set_setting(
         "startInBackground",
         if settings.start_in_background { "true" } else { "false" },
-    );
+    )?;
     Ok(())
 }
 
-fn apply_setting_change(app: &AppHandle, state: &State<'_, Arc<AppState>>, key: &str, value: &str) -> Result<(), String> {
+fn apply_setting_change(app: &AppHandle, state: &State<'_, Arc<AppState>>, key: &str, value: &str) -> AppResult<()> {
     if key == "geminiApiKey" {
-        save_gemini_api_key(&SystemGeminiKeyStore, value).map_err(|error| error.to_string())?;
+        save_gemini_api_key(&SystemGeminiKeyStore, value)
+            .map_err(|error| AppError::keyring_for("set_setting", format!("save Gemini API key: {error}")))?;
         return Ok(());
     }
 
@@ -487,8 +605,11 @@ fn apply_setting_change(app: &AppHandle, state: &State<'_, Arc<AppState>>, key: 
     }
 
     {
-        let datastores = state.datastores.lock().map_err(|error| error.to_string())?;
-        datastores.set_setting(key, value);
+        let datastores = state
+            .datastores
+            .lock()
+            .map_err(|error| lock_error("set_setting", "lock datastores for setting update", error))?;
+        datastores.set_setting(key, value)?;
     }
 
     if key == "classificationRulesJson" {
@@ -531,36 +652,49 @@ fn classify_snapshot(
         };
     }
 
-    if let Ok(datastores) = state.datastores.lock() {
-        if let Some(cached) = datastores.get_cached_classification(process_name, &truncated_title) {
-            return ClassificationResult {
-                category: cached.category,
-                label: cached.label,
-                confidence: cached.confidence,
-                source: "cache".to_string(),
-            };
+    match state.datastores.lock() {
+        Ok(datastores) => {
+            if let Some(cached) = datastores.get_cached_classification(process_name, &truncated_title) {
+                return ClassificationResult {
+                    category: cached.category,
+                    label: cached.label,
+                    confidence: cached.confidence,
+                    source: "cache".to_string(),
+                };
+            }
+        }
+        Err(error) => {
+            log::warn!("failed to lock datastores for classification cache lookup: {error}");
         }
     }
 
     match crate::gemini::classify_with_gemini(api_key, process_name, window_title) {
         Ok(result) => {
-            if let Ok(datastores) = state.datastores.lock() {
-                datastores.upsert_cached_classification(
-                    process_name,
-                    &truncated_title,
-                    result.category,
-                    &result.label,
-                    result.confidence,
-                );
+            match state.datastores.lock() {
+                Ok(datastores) => {
+                    datastores.upsert_cached_classification(
+                        process_name,
+                        &truncated_title,
+                        result.category,
+                        &result.label,
+                        result.confidence,
+                    );
+                }
+                Err(error) => {
+                    log::warn!("failed to lock datastores for cached classification write: {error}");
+                }
             }
             result
         }
-        Err(_) => ClassificationResult {
-            category: ActivityCategory::Unknown,
-            label: "Uncategorized".to_string(),
-            confidence: 0.0,
-            source: "fallback".to_string(),
-        },
+        Err(error) => {
+            log::warn!("Gemini classification failed for {process_name}: {error}");
+            ClassificationResult {
+                category: ActivityCategory::Unknown,
+                label: "Uncategorized".to_string(),
+                confidence: 0.0,
+                source: "fallback".to_string(),
+            }
+        }
     }
 }
 
@@ -571,6 +705,10 @@ fn parse_bool_setting(value: Option<&str>, fallback: bool) -> bool {
         Some(_) => fallback,
         None => fallback,
     }
+}
+
+fn lock_error(command: &'static str, context: &'static str, error: impl std::fmt::Display) -> AppError {
+    AppError::database_for(command, format!("{context}: {error}"))
 }
 
 struct PreviousSample {

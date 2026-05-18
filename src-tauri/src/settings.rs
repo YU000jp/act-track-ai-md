@@ -49,40 +49,40 @@ impl Default for AppSettings {
 }
 
 pub fn load_app_settings(
-    mut get_setting: impl FnMut(&str) -> Option<String>,
+    mut get_setting: impl FnMut(&str) -> anyhow::Result<Option<String>>,
     gemini_api_key_configured: bool,
-) -> AppSettings {
+) -> anyhow::Result<AppSettings> {
     let defaults = AppSettings::default();
 
-    AppSettings {
+    Ok(AppSettings {
         gemini_api_key_configured,
-        poll_interval_ms: parse_number_setting(get_setting("pollIntervalMs"), defaults.poll_interval_ms, 1),
-        idle_timeout_ms: parse_number_setting(get_setting("idleTimeoutMs"), defaults.idle_timeout_ms, 1),
+        poll_interval_ms: parse_number_setting(get_setting("pollIntervalMs")?, defaults.poll_interval_ms, 1),
+        idle_timeout_ms: parse_number_setting(get_setting("idleTimeoutMs")?, defaults.idle_timeout_ms, 1),
         notification_cooldown_ms: parse_number_setting(
-            get_setting("notificationCooldownMs"),
+            get_setting("notificationCooldownMs")?,
             defaults.notification_cooldown_ms,
             0,
         ),
-        grace_period_ms: parse_number_setting(get_setting("gracePeriodMs"), defaults.grace_period_ms, 0),
-        markdown_export_path: get_setting("markdownExportPath").unwrap_or(defaults.markdown_export_path),
+        grace_period_ms: parse_number_setting(get_setting("gracePeriodMs")?, defaults.grace_period_ms, 0),
+        markdown_export_path: get_setting("markdownExportPath")?.unwrap_or(defaults.markdown_export_path),
         notifications_enabled: parse_boolean_setting(
-            get_setting("notificationsEnabled"),
+            get_setting("notificationsEnabled")?,
             defaults.notifications_enabled,
         ),
-        auto_start: parse_boolean_setting(get_setting("autoStart"), defaults.auto_start),
-        classification_rules_json: get_setting("classificationRulesJson")
+        auto_start: parse_boolean_setting(get_setting("autoStart")?, defaults.auto_start),
+        classification_rules_json: get_setting("classificationRulesJson")?
             .unwrap_or(defaults.classification_rules_json),
-        summary_language: get_setting("summaryLanguage").unwrap_or(defaults.summary_language),
-        summary_tone: get_setting("summaryTone").unwrap_or(defaults.summary_tone),
+        summary_language: get_setting("summaryLanguage")?.unwrap_or(defaults.summary_language),
+        summary_tone: get_setting("summaryTone")?.unwrap_or(defaults.summary_tone),
         markdown_privacy_mode: parse_boolean_setting(
-            get_setting("markdownPrivacyMode"),
+            get_setting("markdownPrivacyMode")?,
             defaults.markdown_privacy_mode,
         ),
         start_in_background: parse_boolean_setting(
-            get_setting("startInBackground"),
+            get_setting("startInBackground")?,
             defaults.start_in_background,
         ),
-    }
+    })
 }
 
 pub fn parse_classification_rules(raw: Option<&str>) -> Vec<ClassificationRule> {

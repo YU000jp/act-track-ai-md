@@ -1,49 +1,65 @@
 import { invoke } from "@tauri-apps/api/core"
+import { attachConsole } from "@tauri-apps/plugin-log"
+import { normalizeAppError } from "../../shared/app-error"
 import type { DashboardRPC, TrackingStatus } from "../../shared/types"
-
-type DashboardRPCLike = DashboardRPC["requests"];
-
-declare global {
-  interface Window {
-    dashboardRPC?: DashboardRPCLike;
-  }
-}
 
 type TrackingStatusPayload = {
   running: boolean;
   state: TrackingStatus["state"];
 };
 
-export async function installDashboardRPC(): Promise<void> {
-  if (typeof window === "undefined") {
-    return;
+export type DashboardClient = DashboardRPC["requests"];
+
+let consoleAttached = false;
+let rpcClient: DashboardClient | null = null;
+
+async function invokeDashboard<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    throw normalizeAppError(error);
+  }
+}
+
+export async function installDashboardRPC(): Promise<DashboardClient> {
+  if (rpcClient) {
+    return rpcClient;
   }
 
-  if (window.dashboardRPC) {
-    return;
+  if (!consoleAttached) {
+    consoleAttached = true;
+    void attachConsole().catch(() => {
+      consoleAttached = false;
+    });
   }
 
-  window.dashboardRPC = {
-    getTodaySummary: () => invoke("get_today_summary"),
-    getTopApps: () => invoke("get_top_apps"),
-    getTimeline: (date) => invoke("get_timeline", { date }),
-    getDailySummary: (date) => invoke("get_daily_summary", { date }),
-    getSettings: () => invoke("get_settings"),
-    getTrackingStatus: () => invoke("get_tracking_status"),
-    setSetting: (input) => invoke("set_setting", { input }),
-    setSettings: (input) => invoke("set_settings", { input }),
-    getSetting: (key) => invoke("get_setting", { key }),
-    generateSummaryNow: () => invoke("generate_summary_now"),
-    saveSummaryFeedback: (input) => invoke("save_summary_feedback", { input }),
-    getMemoryStatus: () => invoke("get_memory_status"),
-    listMemories: (limit) => invoke("list_memories", { limit }),
-    forgetMemory: (id) => invoke("forget_memory", { id }),
-    pinMemory: (input) => invoke("pin_memory", { input }),
-    toggleTracking: () => invoke("toggle_tracking"),
+  rpcClient = {
+    getTodaySummary: () => invokeDashboard("get_today_summary"),
+    getTopApps: () => invokeDashboard("get_top_apps"),
+    getTimeline: (date) => invokeDashboard("get_timeline", { date }),
+    getDailySummary: (date) => invokeDashboard("get_daily_summary", { date }),
+    getSettings: () => invokeDashboard("get_settings"),
+    getTrackingStatus: () => invokeDashboard("get_tracking_status"),
+    setSetting: (input) => invokeDashboard("set_setting", { input }),
+    setSettings: (input) => invokeDashboard("set_settings", { input }),
+    getSetting: (key) => invokeDashboard("get_setting", { key }),
+    generateSummaryNow: () => invokeDashboard("generate_summary_now"),
+    saveSummaryFeedback: (input) => invokeDashboard("save_summary_feedback", { input }),
+    getMemoryStatus: () => invokeDashboard("get_memory_status"),
+    listMemories: (limit) => invokeDashboard("list_memories", { limit }),
+    forgetMemory: (id) => invokeDashboard("forget_memory", { id }),
+    pinMemory: (input) => invokeDashboard("pin_memory", { input }),
+    toggleTracking: () => invokeDashboard("toggle_tracking"),
   };
 
+  return rpcClient;
+}
+
+export async function subscribeTrackingStatus(
+  listener: (status: TrackingStatusPayload) => void,
+): Promise<() => void> {
   const eventChannel = await import("@tauri-apps/api/event");
-  await eventChannel.listen<TrackingStatusPayload>("tracking-status", (event) => {
-    window.dispatchEvent(new CustomEvent<TrackingStatusPayload>("tracking-status", { detail: event.payload }));
+  return eventChannel.listen<TrackingStatusPayload>("tracking-status", (event) => {
+    listener(event.payload);
   });
 }

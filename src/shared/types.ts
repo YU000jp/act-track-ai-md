@@ -57,6 +57,11 @@ export type TrackingStatus = {
   state: TrackingState;
 };
 
+export type SummaryGenerationReport = {
+  summary: DailySummary;
+  aiSummaryError?: import("./app-error").AppErrorPayload;
+};
+
 export type DashboardRPC = {
   requests: {
     getTodaySummary: () => Promise<{
@@ -73,7 +78,7 @@ export type DashboardRPC = {
     setSetting: (input: { key: string; value: string }) => Promise<void>;
     setSettings: (input: { settings: AppSettingsUpdate; geminiApiKey?: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;
-    generateSummaryNow: () => Promise<void>;
+    generateSummaryNow: () => Promise<SummaryGenerationReport>;
     saveSummaryFeedback: (input: { date: string; editedSummary: string; originalSummary?: string | null }) => Promise<void>;
     getMemoryStatus: () => Promise<MemoryStatus>;
     listMemories: (limit?: number) => Promise<MemoryRecord[]>;

@@ -16,7 +16,7 @@ ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-b
 - Tauri 2
 - Rust backend
 - pnpm for frontend build and tests
-- TypeScript dashboard UI
+- SolidJS dashboard UI
 - SQLite
 - Google Gemini 2.0 Flash
 
@@ -41,7 +41,7 @@ Open the Settings screen in the app to enter your Gemini API key. The key is sto
 pnpm run tauri:dev
 ```
 
-Tauri runs `scripts/build-frontend.mjs` automatically before the app starts.
+Tauri runs `scripts/dev-frontend.mjs` automatically before the app starts. The dashboard is served from `http://127.0.0.1:1420` with rebuild-triggered page reloads.
 
 ## Build
 
@@ -63,7 +63,8 @@ pnpm run tauri:build
 
 ## Notes
 
-- The dashboard UI lives in `src/frontend/dashboard`.
-- `pnpm run build:frontend` generates the bundled dashboard entrypoint used by Tauri and can also be run directly.
+- The dashboard UI lives in `src/frontend/dashboard` and is implemented with SolidJS.
+- `pnpm run build:frontend` generates the bundled dashboard entrypoint used by Tauri for packaging.
+- `pnpm run dev:frontend` starts the local dashboard server used by `pnpm run tauri:dev`.
 - Local data is stored under the app data directory.
 - Non-secret settings are persisted in SQLite. The Gemini API key is stored in the OS credential store.

@@ -51,6 +51,71 @@ body {
   letter-spacing: 0.03em;
 }
 
+.error-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--distraction) 65%, white 10%);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--distraction) 14%, #1a1320);
+  color: #ffd9d9;
+}
+
+.error-banner[data-error-kind="validation"] {
+  border-color: color-mix(in oklab, #fbbf24 65%, white 10%);
+  background: color-mix(in oklab, #fbbf24 14%, #1e1a12);
+  color: #fff3cf;
+}
+
+.toast-region {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  z-index: 30;
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 92%, #0b0b14);
+  box-shadow: 0 18px 36px rgb(0 0 0 / 0.32);
+  transform: translateY(0);
+  opacity: 1;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.toast strong {
+  font-size: 0.92rem;
+}
+
+.toast span {
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.toast-error {
+  border-color: color-mix(in oklab, var(--distraction) 55%, white 8%);
+}
+
+.toast-success {
+  border-color: color-mix(in oklab, var(--productive) 55%, white 8%);
+}
+
+.toast-info {
+  border-color: color-mix(in oklab, var(--focus) 45%, white 8%);
+}
+
+.toast-leaving {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 #tab-bar {
   display: inline-flex;
   gap: 8px;
@@ -328,6 +393,13 @@ textarea:focus {
   .stats-layout,
   .charts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .toast-region {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: min(360px, calc(100vw - 24px));
   }
 
   #tab-bar {

@@ -1,1 +1,1 @@
-{"main-capability":{"identifier":"main-capability","description":"Allow the main dashboard window to use app commands and core tray/window APIs.","local":true,"windows":["main"],"permissions":["core:default","autostart:default","notification:default","app-commands"]}}
+{"main-capability":{"identifier":"main-capability","description":"Allow the main dashboard window to use app commands and core tray/window APIs.","local":true,"windows":["main"],"permissions":["core:default","autostart:default","notification:default","log:default","app-commands"]}}

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use crate::db::Datastores;
+use crate::error::{AppError, AppResult};
 use crate::http::blocking_client;
 use crate::memory::{MemorySearchResult, MemoryStore};
 use crate::types::{DailySummary, TopApp};
@@ -14,24 +15,40 @@ pub fn format_ai_summary_for_markdown(ai_summary: Option<&str>) -> String {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryGenerationReport {
+    pub summary: DailySummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_summary_error: Option<AppError>,
+}
+
 pub fn generate_daily_summary(
+    command: &'static str,
     datastores: &mut Datastores,
     api_key: &str,
     memory_store: Option<&MemoryStore>,
     date: &str,
-) -> Result<DailySummary, String> {
-    let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) = datastores.get_stats_for_day(date);
-    let top_apps = datastores.get_top_apps_for_day(date, 10);
+) -> AppResult<SummaryGenerationReport> {
+    let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) = datastores
+        .get_stats_for_day(date)
+        .map_err(|error| AppError::database_for(command, format!("read summary stats for {date}: {error}")))?;
+    let top_apps = datastores
+        .get_top_apps_for_day(date, 10)
+        .map_err(|error| AppError::database_for(command, format!("read top apps for {date}: {error}")))?;
     let summary_language = datastores
         .get_setting("summaryLanguage")
+        .map_err(|error| AppError::settings_for(command, format!("read summary language: {error}")))?
         .unwrap_or_else(|| "Japanese".to_string());
     let summary_tone = datastores
         .get_setting("summaryTone")
+        .map_err(|error| AppError::settings_for(command, format!("read summary tone: {error}")))?
         .unwrap_or_else(|| "encouraging".to_string());
     let api_key = api_key.trim();
 
-    let memory_context = collect_memory_context(memory_store, date, &top_apps, &summary_language, &summary_tone)?;
+    let memory_context = collect_memory_context(memory_store, date, &top_apps, &summary_language, &summary_tone);
     let mut ai_summary = None;
+    let mut ai_summary_error = None;
     if !api_key.is_empty() && total_tracked_ms > 0 {
         let prompt = build_summary_prompt(
             date,
@@ -44,8 +61,10 @@ pub fn generate_daily_summary(
             &summary_tone,
             &memory_context,
         );
-        ai_summary = call_gemini_for_summary(&prompt, api_key, &summary_language, &summary_tone, &memory_context)
-            .ok();
+        match call_gemini_for_summary(command, &prompt, api_key, &summary_language, &summary_tone, &memory_context) {
+            Ok(summary) => ai_summary = Some(summary),
+            Err(error) => ai_summary_error = Some(error),
+        }
     }
 
     let summary = DailySummary {
@@ -58,7 +77,9 @@ pub fn generate_daily_summary(
         ai_summary: ai_summary.clone(),
     };
 
-    datastores.save_daily_summary(&summary);
+    datastores
+        .save_daily_summary(&summary)
+        .map_err(|error| AppError::database_for(command, format!("save daily summary for {date}: {error}")))?;
 
     if let Some(memory_store) = memory_store {
         let top_app_names = summary
@@ -90,30 +111,39 @@ pub fn generate_daily_summary(
         }
     }
 
-    Ok(summary)
+    Ok(SummaryGenerationReport {
+        summary,
+        ai_summary_error,
+    })
 }
 
 pub fn save_summary_feedback(
+    command: &'static str,
     datastores: &mut Datastores,
     memory_store: Option<&MemoryStore>,
     date: &str,
     edited_summary: &str,
     original_summary: Option<&str>,
-) {
+) -> AppResult<()> {
     let edited = edited_summary.trim();
     if edited.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let Some(existing) = datastores.get_daily_summary(date) else {
-        return;
+    let Some(existing) = datastores
+        .get_daily_summary(date)
+        .map_err(|error| AppError::database_for(command, format!("read summary for feedback {date}: {error}")))?
+    else {
+        return Ok(());
     };
 
     let existing_ai_summary = existing.ai_summary.clone();
-    datastores.save_daily_summary(&DailySummary {
-        ai_summary: Some(edited.to_string()),
-        ..existing
-    });
+    datastores
+        .save_daily_summary(&DailySummary {
+            ai_summary: Some(edited.to_string()),
+            ..existing
+        })
+        .map_err(|error| AppError::database_for(command, format!("save summary feedback for {date}: {error}")))?;
 
     if let Some(memory_store) = memory_store {
         let mut feedback_metadata = HashMap::new();
@@ -128,6 +158,8 @@ pub fn save_summary_feedback(
         pattern_metadata.insert("source".to_string(), "user-feedback".to_string());
         memory_store.save("pattern", edited, &pattern_metadata, false);
     }
+
+    Ok(())
 }
 
 fn collect_memory_context(
@@ -136,9 +168,9 @@ fn collect_memory_context(
     top_apps: &[TopApp],
     summary_language: &str,
     summary_tone: &str,
-) -> Result<MemoryContext, String> {
+) -> MemoryContext {
     let Some(memory_store) = memory_store else {
-        return Ok(MemoryContext::default());
+        return MemoryContext::default();
     };
 
     let query = format!(
@@ -159,10 +191,10 @@ fn collect_memory_context(
         }
     }
 
-    Ok(MemoryContext {
+    MemoryContext {
         patterns: patterns.into_iter().take(3).collect(),
         contexts: contexts.into_iter().take(3).collect(),
-    })
+    }
 }
 
 fn build_summary_prompt(
@@ -216,12 +248,13 @@ fn build_summary_prompt(
 }
 
 fn call_gemini_for_summary(
+    command: &'static str,
     prompt: &str,
     api_key: &str,
     summary_language: &str,
     summary_tone: &str,
     memory_context: &MemoryContext,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     );
@@ -241,13 +274,18 @@ fn call_gemini_for_summary(
             }
         }))
         .send()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| AppError::external_api_for(command, format!("send Gemini request: {error}")))?;
 
     if !response.status().is_success() {
-        return Err(format!("Gemini API error: {}", response.status()));
+        return Err(AppError::external_api_for(
+            command,
+            format!("Gemini API error: {}", response.status()),
+        ));
     }
 
-    let data: serde_json::Value = response.json().map_err(|error| error.to_string())?;
+    let data: serde_json::Value = response
+        .json()
+        .map_err(|error| AppError::external_api_for(command, format!("decode Gemini response: {error}")))?;
     let text = data
         .get("candidates")
         .and_then(|value| value.as_array())
@@ -258,7 +296,7 @@ fn call_gemini_for_summary(
         .and_then(|parts| parts.first())
         .and_then(|part| part.get("text"))
         .and_then(|text| text.as_str())
-        .ok_or_else(|| "No candidates in Gemini response".to_string())?;
+        .ok_or_else(|| AppError::external_api_for(command, "No candidates in Gemini response"))?;
 
     Ok(text.to_string())
 }

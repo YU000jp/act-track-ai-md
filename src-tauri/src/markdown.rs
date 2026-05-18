@@ -24,26 +24,29 @@ pub fn resolve_markdown_export_directory(configured_path: Option<&str>) -> PathB
 }
 
 pub fn export_day(datastores: &Datastores, date: &str) -> anyhow::Result<(PathBuf, String)> {
-    let output_directory = resolve_markdown_export_directory(datastores.get_setting("markdownExportPath").as_deref());
+    let output_directory = resolve_markdown_export_directory(datastores.get_setting("markdownExportPath")?.as_deref());
     std::fs::create_dir_all(&output_directory)
         .with_context(|| format!("create {:?}", output_directory))?;
 
-    let hide_window_titles = datastores.get_setting("markdownPrivacyMode").as_deref() == Some("true");
+    let hide_window_titles = datastores.get_setting("markdownPrivacyMode")?.as_deref() == Some("true");
     let (start, end) = Datastores::get_day_bounds(date);
-    let activity = datastores.get_activity_range(start, end);
-    let summary = datastores.get_daily_summary(date).unwrap_or_else(|| {
-        let (total, productive, distraction, neutral) = datastores.get_stats_for_day(date);
-        let top_apps = datastores.get_top_apps_for_day(date, 10);
-        crate::types::DailySummary {
-            date: date.to_string(),
-            total_tracked_ms: total,
-            productive_ms: productive,
-            distraction_ms: distraction,
-            neutral_ms: neutral,
-            top_apps,
-            ai_summary: None,
+    let activity = datastores.get_activity_range(start, end)?;
+    let summary = match datastores.get_daily_summary(date)? {
+        Some(summary) => summary,
+        None => {
+            let (total, productive, distraction, neutral) = datastores.get_stats_for_day(date)?;
+            let top_apps = datastores.get_top_apps_for_day(date, 10)?;
+            crate::types::DailySummary {
+                date: date.to_string(),
+                total_tracked_ms: total,
+                productive_ms: productive,
+                distraction_ms: distraction,
+                neutral_ms: neutral,
+                top_apps,
+                ai_summary: None,
+            }
         }
-    });
+    };
 
     let categories: Vec<String> = summary
         .top_apps
