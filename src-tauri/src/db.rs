@@ -4,9 +4,10 @@ use anyhow::Context;
 use chrono::{Duration, NaiveDate, Utc};
 use rusqlite::{params, types::Type, Connection, OptionalExtension};
 
+use crate::settings::ClassificationRule;
 use crate::types::{
     ActivityCategory, ActivitySample, DailySummary, StatisticsDaySummary, StatisticsSnapshot,
-    TopApp,
+    ClassificationRuleRecord, ClassificationRuleScope, TopApp,
 };
 
 pub struct DayActivitySnapshot {
@@ -76,8 +77,24 @@ impl Datastores {
               created_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
               PRIMARY KEY (process_name, window_title)
             );
+            CREATE TABLE IF NOT EXISTS classification_rules (
+              id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+              process_name_pattern TEXT NOT NULL,
+              window_title_pattern TEXT NOT NULL,
+              category            TEXT NOT NULL,
+              label               TEXT NOT NULL,
+              enabled             INTEGER NOT NULL DEFAULT 1,
+              scope               TEXT NOT NULL DEFAULT 'both',
+              priority            INTEGER NOT NULL DEFAULT 0,
+              source              TEXT NOT NULL DEFAULT 'manual',
+              hit_count           INTEGER NOT NULL DEFAULT 0,
+              last_used_at        INTEGER,
+              created_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+              updated_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+            );
             "#,
         )?;
+        Self::ensure_classification_rules_priority_column(&cache)?;
 
         activity.execute_batch(
             r#"
@@ -173,6 +190,460 @@ impl Datastores {
     #[allow(dead_code)]
     pub fn clear_cache(&self) {
         let _ = self.cache.execute("DELETE FROM classification_cache", []);
+    }
+
+    pub fn get_classification_rules(&self) -> anyhow::Result<Vec<ClassificationRuleRecord>> {
+        let mut stmt = self.cache.prepare(
+            r#"
+            SELECT
+              id,
+              process_name_pattern,
+              window_title_pattern,
+              category,
+              label,
+              enabled,
+              scope,
+              priority,
+              source,
+              hit_count,
+              last_used_at,
+              created_at,
+              updated_at
+            FROM classification_rules
+            ORDER BY priority DESC, enabled DESC, last_used_at DESC, hit_count DESC, updated_at DESC, id DESC
+            "#,
+        )?;
+
+        let rows = stmt.query_map([], |row| self.read_classification_rule_row(row))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn replace_classification_rules_from_drafts(
+        &self,
+        drafts: &[ClassificationRule],
+        source: &str,
+    ) -> anyhow::Result<Vec<ClassificationRuleRecord>> {
+        let tx = self.cache.unchecked_transaction()?;
+        tx.execute("DELETE FROM classification_rules", [])?;
+
+        let mut saved_rules = Vec::with_capacity(drafts.len());
+        for (index, draft) in drafts.iter().enumerate() {
+            let now = Self::now_ms();
+            let record = ClassificationRuleRecord {
+                id: 0,
+                priority: drafts.len() as i64 - index as i64,
+                process_name_pattern: draft.process_name_pattern.clone(),
+                window_title_pattern: draft.window_title_pattern.clone(),
+                category: draft.category,
+                label: draft.label.clone(),
+                enabled: draft.enabled,
+                scope: draft.scope,
+                source: source.to_string(),
+                hit_count: 0,
+                last_used_at: None,
+                created_at: now,
+                updated_at: now,
+            };
+            tx.execute(
+                r#"
+                INSERT INTO classification_rules (
+                  process_name_pattern,
+                  window_title_pattern,
+                  category,
+                  label,
+                  enabled,
+                  scope,
+                  priority,
+                  source,
+                  hit_count,
+                  last_used_at,
+                  created_at,
+                  updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "#,
+                params![
+                    record.process_name_pattern,
+                    record.window_title_pattern,
+                    record.category.as_str(),
+                    record.label,
+                    if record.enabled { 1 } else { 0 },
+                    scope_to_str(record.scope),
+                    record.priority,
+                    record.source,
+                    record.hit_count,
+                    record.last_used_at,
+                    record.created_at,
+                    record.updated_at,
+                ],
+            )?;
+            saved_rules.push(Self::with_record_id(record, tx.last_insert_rowid()));
+        }
+
+        tx.commit()?;
+        Ok(saved_rules)
+    }
+
+    pub fn upsert_classification_rule(
+        &self,
+        id: Option<i64>,
+        draft: &ClassificationRule,
+        source: &str,
+    ) -> anyhow::Result<ClassificationRuleRecord> {
+        match id {
+            Some(id) => {
+                let existing = self.get_classification_rule_by_id(id)?;
+                if let Some(existing) = existing {
+                    let updated = ClassificationRuleRecord {
+                        id,
+                        priority: existing.priority,
+                        process_name_pattern: draft.process_name_pattern.clone(),
+                        window_title_pattern: draft.window_title_pattern.clone(),
+                        category: draft.category,
+                        label: draft.label.clone(),
+                        enabled: draft.enabled,
+                        scope: draft.scope,
+                        source: existing.source,
+                        hit_count: existing.hit_count,
+                        last_used_at: existing.last_used_at,
+                        created_at: existing.created_at,
+                        updated_at: Self::now_ms(),
+                    };
+                    self.write_classification_rule(&updated)?;
+                    Ok(updated)
+                } else {
+                    self.insert_classification_rule(draft, source)
+                }
+            }
+            None => self.insert_classification_rule(draft, source),
+        }
+    }
+
+    pub fn insert_classification_rule(
+        &self,
+        draft: &ClassificationRule,
+        source: &str,
+    ) -> anyhow::Result<ClassificationRuleRecord> {
+        let now = Self::now_ms();
+        let priority = self.next_classification_rule_priority()?;
+        let record = ClassificationRuleRecord {
+            id: 0,
+            priority,
+            process_name_pattern: draft.process_name_pattern.clone(),
+            window_title_pattern: draft.window_title_pattern.clone(),
+            category: draft.category,
+            label: draft.label.clone(),
+            enabled: draft.enabled,
+            scope: draft.scope,
+            source: source.to_string(),
+            hit_count: 0,
+            last_used_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let id = self.insert_classification_rule_record(&record)?;
+        Ok(Self::with_record_id(record, id))
+    }
+
+    pub fn delete_classification_rule(&self, id: i64) -> anyhow::Result<()> {
+        self.cache
+            .execute("DELETE FROM classification_rules WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn set_classification_rule_enabled(
+        &self,
+        id: i64,
+        enabled: bool,
+    ) -> anyhow::Result<ClassificationRuleRecord> {
+        let mut rule = self
+            .get_classification_rule_by_id(id)?
+            .ok_or_else(|| anyhow::anyhow!("missing classification rule {id}"))?;
+        rule.enabled = enabled;
+        rule.updated_at = Self::now_ms();
+        self.write_classification_rule(&rule)?;
+        Ok(rule)
+    }
+
+    pub fn record_classification_rule_hit(&self, id: i64, used_at: i64) -> anyhow::Result<()> {
+        self.cache.execute(
+            r#"
+            UPDATE classification_rules
+            SET hit_count = hit_count + 1,
+                last_used_at = ?2,
+                updated_at = ?2
+            WHERE id = ?1
+            "#,
+            params![id, used_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_classification_rule_by_id(
+        &self,
+        id: i64,
+    ) -> anyhow::Result<Option<ClassificationRuleRecord>> {
+        self.cache
+            .query_row(
+                r#"
+                SELECT
+                  id,
+                  process_name_pattern,
+                  window_title_pattern,
+                  category,
+                  label,
+                  enabled,
+                  scope,
+                  priority,
+                  source,
+                  hit_count,
+                  last_used_at,
+                  created_at,
+                  updated_at
+                FROM classification_rules
+                WHERE id = ?1
+                "#,
+                params![id],
+                |row| self.read_classification_rule_row(row),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    fn insert_classification_rule_record(
+        &self,
+        rule: &ClassificationRuleRecord,
+    ) -> anyhow::Result<i64> {
+        self.cache.execute(
+            r#"
+            INSERT INTO classification_rules (
+              process_name_pattern,
+              window_title_pattern,
+              category,
+              label,
+              enabled,
+              scope,
+              priority,
+              source,
+              hit_count,
+              last_used_at,
+              created_at,
+              updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "#,
+            params![
+                rule.process_name_pattern,
+                rule.window_title_pattern,
+                rule.category.as_str(),
+                rule.label,
+                if rule.enabled { 1 } else { 0 },
+                scope_to_str(rule.scope),
+                rule.priority,
+                rule.source,
+                rule.hit_count,
+                rule.last_used_at,
+                rule.created_at,
+                rule.updated_at,
+            ],
+        )?;
+        Ok(self.cache.last_insert_rowid())
+    }
+
+    fn write_classification_rule(&self, rule: &ClassificationRuleRecord) -> anyhow::Result<()> {
+        self.cache.execute(
+            r#"
+            INSERT INTO classification_rules (
+              id,
+              process_name_pattern,
+              window_title_pattern,
+              category,
+              label,
+              enabled,
+              scope,
+              priority,
+              source,
+              hit_count,
+              last_used_at,
+              created_at,
+              updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            ON CONFLICT(id) DO UPDATE SET
+              process_name_pattern = excluded.process_name_pattern,
+              window_title_pattern = excluded.window_title_pattern,
+              category = excluded.category,
+              label = excluded.label,
+              enabled = excluded.enabled,
+              scope = excluded.scope,
+              priority = excluded.priority,
+              source = excluded.source,
+              hit_count = excluded.hit_count,
+              last_used_at = excluded.last_used_at,
+              created_at = excluded.created_at,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                rule.id,
+                rule.process_name_pattern,
+                rule.window_title_pattern,
+                rule.category.as_str(),
+                rule.label,
+                if rule.enabled { 1 } else { 0 },
+                scope_to_str(rule.scope),
+                rule.priority,
+                rule.source,
+                rule.hit_count,
+                rule.last_used_at,
+                rule.created_at,
+                rule.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn read_classification_rule_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<ClassificationRuleRecord, rusqlite::Error> {
+        let category = match row.get::<_, String>(3)?.as_str() {
+            "productive" => ActivityCategory::Productive,
+            "distraction" => ActivityCategory::Distraction,
+            "neutral" => ActivityCategory::Neutral,
+            _ => ActivityCategory::Unknown,
+        };
+        let scope = match row.get::<_, String>(6)?.as_str() {
+            "process" => ClassificationRuleScope::Process,
+            "title" => ClassificationRuleScope::Title,
+            _ => ClassificationRuleScope::Both,
+        };
+        Ok(ClassificationRuleRecord {
+            id: row.get(0)?,
+            process_name_pattern: row.get(1)?,
+            window_title_pattern: row.get(2)?,
+            category,
+            label: row.get(4)?,
+            enabled: row.get::<_, i64>(5)? != 0,
+            scope,
+            priority: row.get(7)?,
+            source: row.get(8)?,
+            hit_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        })
+    }
+
+    fn with_record_id(mut rule: ClassificationRuleRecord, id: i64) -> ClassificationRuleRecord {
+        rule.id = id;
+        rule
+    }
+
+    fn next_classification_rule_priority(&self) -> anyhow::Result<i64> {
+        self.cache
+            .query_row(
+                "SELECT COALESCE(MAX(priority), 0) + 1 FROM classification_rules",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn move_classification_rule(
+        &self,
+        id: i64,
+        direction: &str,
+    ) -> anyhow::Result<ClassificationRuleRecord> {
+        let mut rules = self.get_classification_rules()?;
+        let Some(current_index) = rules.iter().position(|rule| rule.id == id) else {
+            anyhow::bail!("missing classification rule {id}");
+        };
+
+        let target_index = match direction {
+            "up" if current_index > 0 => current_index - 1,
+            "down" if current_index + 1 < rules.len() => current_index + 1,
+            "up" | "down" => return Ok(rules[current_index].clone()),
+            other => anyhow::bail!("invalid rule move direction {other}"),
+        };
+
+        rules.swap(current_index, target_index);
+        self.resequence_classification_rule_priorities(&rules)?;
+        let updated_rules = self.get_classification_rules()?;
+        Ok(updated_rules
+            .into_iter()
+            .find(|rule| rule.id == id)
+            .expect("moved rule must still exist"))
+    }
+
+    pub fn reorder_classification_rule(
+        &self,
+        id: i64,
+        target_id: i64,
+        placement: &str,
+    ) -> anyhow::Result<ClassificationRuleRecord> {
+        if id == target_id {
+            return self
+                .get_classification_rule_by_id(id)?
+                .ok_or_else(|| anyhow::anyhow!("missing classification rule {id}"));
+        }
+
+        let mut rules = self.get_classification_rules()?;
+        let Some(from_index) = rules.iter().position(|rule| rule.id == id) else {
+            anyhow::bail!("missing classification rule {id}");
+        };
+        let Some(mut target_index) = rules.iter().position(|rule| rule.id == target_id) else {
+            anyhow::bail!("missing classification rule {target_id}");
+        };
+
+        let rule = rules.remove(from_index);
+        if from_index < target_index {
+            target_index -= 1;
+        }
+
+        let insert_index = match placement {
+            "before" => target_index,
+            "after" => target_index + 1,
+            other => anyhow::bail!("invalid rule placement {other}"),
+        };
+        rules.insert(insert_index.min(rules.len()), rule);
+
+        self.resequence_classification_rule_priorities(&rules)?;
+        self.get_classification_rule_by_id(id)?
+            .ok_or_else(|| anyhow::anyhow!("missing classification rule {id}"))
+    }
+
+    pub fn resequence_classification_rule_priorities(
+        &self,
+        ordered_rules: &[ClassificationRuleRecord],
+    ) -> anyhow::Result<()> {
+        let tx = self.cache.unchecked_transaction()?;
+        let total = ordered_rules.len() as i64;
+        for (index, rule) in ordered_rules.iter().enumerate() {
+            let priority = total - index as i64;
+            tx.execute(
+                "UPDATE classification_rules SET priority = ?2 WHERE id = ?1",
+                params![rule.id, priority],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn ensure_classification_rules_priority_column(cache: &Connection) -> anyhow::Result<()> {
+        let mut stmt = cache.prepare("PRAGMA table_info(classification_rules)")?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if columns.iter().any(|column| column == "priority") {
+            return Ok(());
+        }
+
+        cache.execute(
+            "ALTER TABLE classification_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+        Ok(())
+    }
+
+    fn now_ms() -> i64 {
+        Utc::now().timestamp_millis()
     }
 
     pub fn insert_activity_sample(&self, sample: ActivityInsert) -> anyhow::Result<i64> {
@@ -782,6 +1253,14 @@ fn category_rank(category: ActivityCategory) -> u8 {
         ActivityCategory::Distraction => 2,
         ActivityCategory::Neutral => 1,
         ActivityCategory::Unknown => 0,
+    }
+}
+
+fn scope_to_str(scope: ClassificationRuleScope) -> &'static str {
+    match scope {
+        ClassificationRuleScope::Process => "process",
+        ClassificationRuleScope::Title => "title",
+        ClassificationRuleScope::Both => "both",
     }
 }
 

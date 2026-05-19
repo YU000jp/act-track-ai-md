@@ -20,6 +20,13 @@ export function formatMemoryDate(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
 }
 
+export function formatActivityTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function formatPercent(part: number, whole: number): number {
   if (whole <= 0) {
     return 0;
@@ -43,6 +50,10 @@ export function parseIntegerInput(value: string, fallback: number, minValue = 0)
 
 export function parseBootstrapTimeout(value: string | null | undefined): number {
   return parseIntegerInput(value ?? "", DASHBOARD_BOOTSTRAP_TIMEOUT_MS, 1000);
+}
+
+export function getCurrentUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export async function withTimeout<T>(

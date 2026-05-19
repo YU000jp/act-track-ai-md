@@ -15,12 +15,15 @@ use crate::error::{AppError, AppResult};
 use crate::markdown;
 use crate::memory::MemoryStore;
 use crate::secrets::{save_gemini_api_key, GeminiKeyStore, SystemGeminiKeyStore};
-use crate::settings::{parse_classification_rules, AppSettings, ClassificationRule};
+use crate::settings::{
+    parse_classification_rules, serialize_classification_rules, AppSettings, ClassificationRule,
+};
 use crate::summarizer;
 use crate::tracker;
 use crate::types::{
-    ActivityCategory, ActivitySample, ClassificationResult, DailySummary, MemoryRecord,
-    MemorySnapshot, MemoryStatus, StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
+    ActivityCategory, ActivitySample, ClassificationResult, ClassificationRuleRecord, DailySummary,
+    MemoryRecord, MemorySnapshot, MemoryStatus, StatisticsSnapshot, TopApp, TrackingState,
+    WindowSnapshot,
 };
 
 const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
@@ -32,7 +35,7 @@ pub struct AppState {
     pub datastores: Arc<Mutex<Datastores>>,
     pub memory_store: Arc<Mutex<MemoryStore>>,
     pub tracking_enabled: Arc<AtomicBool>,
-    pub classification_rules: Arc<RwLock<Vec<ClassificationRule>>>,
+    pub classification_rules: Arc<RwLock<Vec<ClassificationRuleRecord>>>,
     pub runtime_settings: Arc<RwLock<AppSettings>>,
     pub gemini_api_key: Arc<RwLock<Option<String>>>,
     pub gemini_api_key_prompt_lock: Arc<AtomicBool>,
@@ -45,7 +48,7 @@ impl AppState {
         memory_store: MemoryStore,
         self_process_name: String,
         tracking_enabled: bool,
-        classification_rules: Vec<ClassificationRule>,
+        classification_rules: Vec<ClassificationRuleRecord>,
         runtime_settings: AppSettings,
         gemini_api_key: Option<String>,
     ) -> Self {
@@ -61,17 +64,24 @@ impl AppState {
         }
     }
 
-    pub fn update_classification_rules(&self, raw_rules: &str) {
-        if let Ok(mut rules) = self.classification_rules.write() {
-            *rules = parse_classification_rules(Some(raw_rules));
-        }
-    }
-
     pub fn settings_snapshot(&self) -> AppSettings {
-        self.runtime_settings
+        let mut settings = self
+            .runtime_settings
             .read()
             .map(|settings| settings.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        settings.classification_rules_json = self
+            .classification_rules
+            .read()
+            .map(|rules| {
+                let drafts = rules
+                    .iter()
+                    .map(classification_rule_record_to_draft)
+                    .collect::<Vec<_>>();
+                serialize_classification_rules(&drafts)
+            })
+            .unwrap_or_default();
+        settings
     }
 
     pub fn update_settings_snapshot(&self, next_settings: AppSettings) {
@@ -83,6 +93,43 @@ impl AppState {
     pub fn update_setting_snapshot(&self, key: &str, value: &str) {
         if let Ok(mut settings) = self.runtime_settings.write() {
             apply_setting_to_snapshot(&mut settings, key, value);
+        }
+    }
+
+    pub fn classification_rules_snapshot(&self) -> Vec<ClassificationRuleRecord> {
+        self.classification_rules
+            .read()
+            .map(|rules| rules.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn replace_classification_rules(&self, rules: Vec<ClassificationRuleRecord>) {
+        if let Ok(mut current_rules) = self.classification_rules.write() {
+            *current_rules = rules;
+        }
+
+        if let Ok(mut settings) = self.runtime_settings.write() {
+            settings.classification_rules_json = self
+                .classification_rules
+                .read()
+                .map(|rules| {
+                    let drafts = rules
+                        .iter()
+                        .map(classification_rule_record_to_draft)
+                        .collect::<Vec<_>>();
+                    serialize_classification_rules(&drafts)
+                })
+                .unwrap_or_default();
+        }
+    }
+
+    pub fn record_classification_rule_hit(&self, id: i64, used_at: i64) {
+        if let Ok(mut rules) = self.classification_rules.write() {
+            if let Some(rule) = rules.iter_mut().find(|rule| rule.id == id) {
+                rule.hit_count += 1;
+                rule.last_used_at = Some(used_at);
+                rule.updated_at = used_at;
+            }
         }
     }
 
@@ -186,6 +233,7 @@ pub struct DashboardBootstrapSnapshot {
     pub today_summary: TodaySummary,
     pub top_apps: Vec<TopApp>,
     pub statistics_snapshot: StatisticsSnapshot,
+    pub classification_rules: Vec<ClassificationRuleRecord>,
     pub settings: AppSettings,
     pub tracking_status: TrackingStatus,
     pub daily_summary: Option<DailySummary>,
@@ -197,7 +245,7 @@ pub fn create_app_state(
     datastores: Datastores,
     memory_store: MemoryStore,
     tracking_enabled: bool,
-    classification_rules: Vec<ClassificationRule>,
+    classification_rules: Vec<ClassificationRuleRecord>,
     runtime_settings: AppSettings,
     gemini_api_key: Option<String>,
 ) -> anyhow::Result<AppState> {
@@ -289,128 +337,38 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                 if let Some(snapshot) = snapshot {
                     let idle_ms = tracker::get_idle_ms();
                     if tracker::is_idle(idle_ms, settings.idle_timeout_ms) {
-                        if let Some(previous) = previous_sample.as_ref() {
-                            let finalize_at = if day_changed { day_start } else { now };
-                            let duration_ms = (finalize_at - previous.timestamp).max(0);
-                            if let Err(error) = update_sample_duration(
-                                &state,
-                                previous.id,
-                                duration_ms,
-                                "failed to finalize idle activity duration",
-                            ) {
-                                log::warn!("failed to finalize idle activity duration: {error}");
-                            }
-                        }
+                        finalize_previous_sample(
+                            &state,
+                            previous_sample.as_ref(),
+                            if day_changed { day_start } else { now },
+                            "failed to finalize idle activity duration",
+                        );
                         previous_sample = None;
                     } else {
-                        let same_window = previous_sample
-                            .as_ref()
-                            .map(|previous| previous.matches_snapshot(&snapshot))
-                            .unwrap_or(false);
-                        let classification = if same_window {
-                            previous_sample
-                                .as_ref()
-                                .map(|previous| previous.classification.clone())
-                                .unwrap_or_else(fallback_unknown_classification)
-                        } else {
-                            let api_key = state.active_api_key();
-                            classify_snapshot(
-                                &state,
-                                &app,
-                                &api_key,
-                                &snapshot.process_name,
-                                &snapshot.window_title,
-                            )
-                        };
-
-                        if let Some(previous) = previous_sample.as_ref() {
-                            let finalize_at = if day_changed { day_start } else { now };
-                            let duration_ms = (finalize_at - previous.timestamp).max(0);
-                            if let Err(error) = update_sample_duration(
-                                &state,
-                                previous.id,
-                                duration_ms,
-                                "failed to update activity duration",
-                            ) {
-                                log::warn!("failed to update activity duration: {error}");
-                            }
-                        }
-
-                        let should_reuse_previous_sample = same_window && !day_changed;
-                        if should_reuse_previous_sample {
-                            // The open row was already refreshed above; keep it active.
-                        } else {
-                            let timestamp = if day_changed && same_window {
-                                day_start
-                            } else {
-                                now
-                            };
-
-                            let id = match insert_activity_sample(
-                                &state,
-                                timestamp,
-                                &snapshot,
-                                &classification,
-                            ) {
-                                Ok(id) => id,
-                                Err(error) => {
-                                    log::error!("failed to insert activity sample: {error}");
-                                    continue;
-                                }
-                            };
-
-                            previous_sample = Some(PreviousSample {
-                                id,
-                                timestamp,
-                                snapshot: snapshot.clone(),
-                                classification: classification.clone(),
-                            });
-
-                            if day_changed && same_window {
-                                let duration_ms = (now - day_start).max(0);
-                                if let Err(error) = update_sample_duration(
-                                    &state,
-                                    id,
-                                    duration_ms,
-                                    "failed to extend rollover activity duration",
-                                ) {
-                                    log::warn!(
-                                        "failed to extend rollover activity duration: {error}"
-                                    );
-                                }
-                            }
-                        }
-
-                        let state_after_sample =
-                            if classification.category == ActivityCategory::Distraction {
-                                TrackingState::Distracted
-                            } else if classification.category == ActivityCategory::Unknown {
-                                TrackingState::Idle
-                            } else {
-                                TrackingState::Productive
-                            };
+                        let classification = track_active_window(
+                            &app,
+                            &state,
+                            &snapshot,
+                            &mut previous_sample,
+                            now,
+                            day_changed,
+                            day_start,
+                        );
 
                         notifier.on_sample(
                             &app,
                             &settings,
                             &classification.category,
                             &snapshot.process_name,
-                            &snapshot.window_title,
-                            state_after_sample,
                         );
                     }
                 } else if day_changed {
-                    if let Some(previous) = previous_sample.as_ref() {
-                        let duration_ms = (day_start - previous.timestamp).max(0);
-                        if let Err(error) = update_sample_duration(
-                            &state,
-                            previous.id,
-                            duration_ms,
-                            "failed to finalize rollover activity duration",
-                        ) {
-                            log::warn!("failed to finalize rollover activity duration: {error}");
-                        }
-                    }
+                    finalize_previous_sample(
+                        &state,
+                        previous_sample.as_ref(),
+                        day_start,
+                        "failed to finalize rollover activity duration",
+                    );
                     previous_sample = None;
                 }
             } else {
@@ -654,12 +612,155 @@ pub fn get_dashboard_bootstrap(
         },
         top_apps,
         statistics_snapshot,
+        classification_rules: state.classification_rules_snapshot(),
         settings,
         tracking_status,
         daily_summary,
         memory_status,
         memory_records,
     })
+}
+
+#[tauri::command]
+pub fn get_classification_rules(
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<Vec<ClassificationRuleRecord>> {
+    Ok(state.classification_rules_snapshot())
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleUpsertInput {
+    pub id: Option<i64>,
+    pub rule: ClassificationRule,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleEnabledInput {
+    pub id: i64,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleDeleteInput {
+    pub id: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleMoveInput {
+    pub id: i64,
+    pub direction: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleReorderInput {
+    pub id: i64,
+    pub target_id: i64,
+    pub placement: String,
+}
+
+#[tauri::command]
+pub fn save_classification_rule(
+    input: ClassificationRuleUpsertInput,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<ClassificationRuleRecord> {
+    let saved_rule = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "save_classification_rule",
+                "lock datastores for rule save",
+                error,
+            )
+        })?;
+        datastores.upsert_classification_rule(input.id, &input.rule, "manual")?
+    };
+
+    refresh_classification_rules_projection(&state)?;
+    Ok(saved_rule)
+}
+
+#[tauri::command]
+pub fn move_classification_rule(
+    input: ClassificationRuleMoveInput,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<ClassificationRuleRecord> {
+    let saved_rule = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "move_classification_rule",
+                "lock datastores for rule move",
+                error,
+            )
+        })?;
+        datastores.move_classification_rule(input.id, &input.direction)?
+    };
+
+    refresh_classification_rules_projection(&state)?;
+    Ok(saved_rule)
+}
+
+#[tauri::command]
+pub fn reorder_classification_rule(
+    input: ClassificationRuleReorderInput,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<ClassificationRuleRecord> {
+    let saved_rule = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "reorder_classification_rule",
+                "lock datastores for rule reorder",
+                error,
+            )
+        })?;
+        datastores.reorder_classification_rule(input.id, input.target_id, &input.placement)?
+    };
+
+    refresh_classification_rules_projection(&state)?;
+    Ok(saved_rule)
+}
+
+#[tauri::command]
+pub fn delete_classification_rule(
+    input: ClassificationRuleDeleteInput,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<()> {
+    {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "delete_classification_rule",
+                "lock datastores for rule delete",
+                error,
+            )
+        })?;
+        datastores.delete_classification_rule(input.id)?;
+    }
+
+    refresh_classification_rules_projection(&state)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_classification_rule_enabled(
+    input: ClassificationRuleEnabledInput,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<ClassificationRuleRecord> {
+    let saved_rule = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "set_classification_rule_enabled",
+                "lock datastores for rule toggle",
+                error,
+            )
+        })?;
+        datastores.set_classification_rule_enabled(input.id, input.enabled)?
+    };
+
+    refresh_classification_rules_projection(&state)?;
+    Ok(saved_rule)
 }
 
 #[tauri::command]
@@ -685,6 +786,7 @@ pub fn set_settings(
     state: State<'_, Arc<AppState>>,
 ) -> AppResult<()> {
     persist_settings(&state, &input.settings)?;
+    sync_classification_rules_from_json(&state, &input.settings.classification_rules_json)?;
 
     let mut updated_settings = state.settings_snapshot();
     updated_settings.dashboard_bootstrap_timeout_ms = input.settings.dashboard_bootstrap_timeout_ms;
@@ -695,13 +797,11 @@ pub fn set_settings(
     updated_settings.markdown_export_path = input.settings.markdown_export_path.clone();
     updated_settings.notifications_enabled = input.settings.notifications_enabled;
     updated_settings.auto_start = input.settings.auto_start;
-    updated_settings.classification_rules_json = input.settings.classification_rules_json.clone();
     updated_settings.summary_language = input.settings.summary_language.clone();
     updated_settings.summary_tone = input.settings.summary_tone.clone();
     updated_settings.markdown_privacy_mode = input.settings.markdown_privacy_mode;
     updated_settings.start_in_background = input.settings.start_in_background;
 
-    state.update_classification_rules(&input.settings.classification_rules_json);
     state.update_settings_snapshot(updated_settings);
 
     if let Some(gemini_api_key) = input
@@ -940,11 +1040,34 @@ fn apply_autostart(app: &AppHandle, enabled: bool) -> AppResult<()> {
             AppError::settings_for("set_settings", format!("enable autostart: {error}"))
         })?;
     } else {
-        manager.disable().map_err(|error| {
-            AppError::settings_for("set_settings", format!("disable autostart: {error}"))
-        })?;
+        match manager.disable() {
+            Ok(()) => {}
+            Err(error) if is_missing_autostart_entry_error(&error) => {
+                // The startup entry may already be absent; disabling twice should be idempotent.
+                log::debug!("autostart entry was already missing during disable: {error}");
+            }
+            Err(error) => {
+                return Err(AppError::settings_for(
+                    "set_settings",
+                    format!("disable autostart: {error}"),
+                ));
+            }
+        }
     }
     Ok(())
+}
+
+fn is_missing_autostart_entry_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current: Option<&dyn std::error::Error> = Some(error);
+    while let Some(source) = current {
+        if let Some(io_error) = source.downcast_ref::<std::io::Error>() {
+            if io_error.kind() == std::io::ErrorKind::NotFound {
+                return true;
+            }
+        }
+        current = source.source();
+    }
+    false
 }
 
 pub fn load_tracking_enabled(datastores: &Datastores) -> AppResult<bool> {
@@ -1091,15 +1214,89 @@ fn apply_setting_change(
         datastores.set_setting(key, value)?;
     }
 
-    state.update_setting_snapshot(key, value);
+    if key == "classificationRulesJson" {
+        sync_classification_rules_from_json(state, value)?;
+    } else {
+        state.update_setting_snapshot(key, value);
+    }
 
     if key == "classificationRulesJson" {
-        state.update_classification_rules(value);
+        state.update_setting_snapshot(key, &state.settings_snapshot().classification_rules_json);
     } else if key == "autoStart" {
         apply_autostart(app, value == "true")?;
     }
 
     Ok(())
+}
+
+fn sync_classification_rules_from_json(
+    state: &State<'_, Arc<AppState>>,
+    raw_rules: &str,
+) -> AppResult<()> {
+    let parsed_rules = parse_classification_rules(Some(raw_rules));
+    let records = {
+        let datastores = state
+            .datastores
+            .lock()
+            .map_err(|error| lock_error("set_setting", "lock datastores for rule sync", error))?;
+        datastores.replace_classification_rules_from_drafts(&parsed_rules, "json")?
+    };
+
+    let classification_rules_json = serialize_classification_rules(
+        &records
+            .iter()
+            .map(classification_rule_record_to_draft)
+            .collect::<Vec<_>>(),
+    );
+
+    {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "set_setting",
+                "lock datastores for rule sync projection",
+                error,
+            )
+        })?;
+        datastores.set_setting("classificationRulesJson", &classification_rules_json)?;
+    }
+
+    state.replace_classification_rules(records);
+    Ok(())
+}
+
+fn refresh_classification_rules_projection(
+    state: &State<'_, Arc<AppState>>,
+) -> AppResult<Vec<ClassificationRuleRecord>> {
+    let records = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "classification_rules",
+                "lock datastores for rule load",
+                error,
+            )
+        })?;
+        datastores.get_classification_rules()?
+    };
+    let classification_rules_json = serialize_classification_rules(
+        &records
+            .iter()
+            .map(classification_rule_record_to_draft)
+            .collect::<Vec<_>>(),
+    );
+
+    {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "classification_rules",
+                "lock datastores for rule projection sync",
+                error,
+            )
+        })?;
+        datastores.set_setting("classificationRulesJson", &classification_rules_json)?;
+    }
+
+    state.replace_classification_rules(records.clone());
+    Ok(records)
 }
 
 fn tracking_state_from_running(running: bool) -> TrackingState {
@@ -1125,6 +1322,11 @@ fn classify_snapshot(
             crate::classifier::find_matching_rule(&rules, process_name, window_title)
         })
     {
+        let matched_at = Utc::now().timestamp_millis();
+        if let Ok(datastores) = state.datastores.lock() {
+            let _ = datastores.record_classification_rule_hit(rule.id, matched_at);
+        }
+        state.record_classification_rule_hit(rule.id, matched_at);
         return ClassificationResult {
             category: rule.category,
             label: rule.label,
@@ -1213,6 +1415,17 @@ fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<S
     }
 }
 
+fn classification_rule_record_to_draft(rule: &ClassificationRuleRecord) -> ClassificationRule {
+    ClassificationRule {
+        process_name_pattern: rule.process_name_pattern.clone(),
+        window_title_pattern: rule.window_title_pattern.clone(),
+        category: rule.category,
+        label: rule.label.clone(),
+        enabled: rule.enabled,
+        scope: rule.scope,
+    }
+}
+
 fn apply_setting_to_snapshot(settings: &mut AppSettings, key: &str, value: &str) {
     match key {
         "dashboardBootstrapTimeoutMs" => {
@@ -1279,14 +1492,13 @@ fn lock_error(
 struct PreviousSample {
     id: i64,
     timestamp: i64,
-    snapshot: WindowSnapshot,
     classification: ClassificationResult,
+    tracking_key: tracker::WindowTrackingKey,
 }
 
 impl PreviousSample {
     fn matches_snapshot(&self, snapshot: &WindowSnapshot) -> bool {
-        self.snapshot.process_name == snapshot.process_name
-            && self.snapshot.window_title == snapshot.window_title
+        self.tracking_key == tracker::WindowTrackingKey::from_snapshot(snapshot)
     }
 }
 
@@ -1307,8 +1519,6 @@ impl NotifierPolicy {
         settings: &AppSettings,
         category: &ActivityCategory,
         process_name: &str,
-        _window_title: &str,
-        state: TrackingState,
     ) {
         if !settings.notifications_enabled {
             return;
@@ -1346,8 +1556,6 @@ impl NotifierPolicy {
             .show();
 
         self.last_notified_at = Some(now);
-
-        let _ = state;
     }
 }
 
@@ -1398,6 +1606,98 @@ fn update_sample_duration(
         .map_err(|error| {
             AppError::database_for(command, format!("update activity duration: {error}"))
         })
+}
+
+fn finalize_previous_sample(
+    state: &Arc<AppState>,
+    previous: Option<&PreviousSample>,
+    finalize_at: i64,
+    command: &'static str,
+) {
+    if let Some(previous) = previous {
+        let duration_ms = (finalize_at - previous.timestamp).max(0);
+        if let Err(error) = update_sample_duration(state, previous.id, duration_ms, command) {
+            log::warn!("{command}: {error}");
+        }
+    }
+}
+
+fn track_active_window(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    snapshot: &WindowSnapshot,
+    previous_sample: &mut Option<PreviousSample>,
+    now: i64,
+    day_changed: bool,
+    day_start: i64,
+) -> ClassificationResult {
+    let same_window = previous_sample
+        .as_ref()
+        .map(|previous| previous.matches_snapshot(snapshot))
+        .unwrap_or(false);
+
+    let classification = if same_window {
+        previous_sample
+            .as_ref()
+            .map(|previous| previous.classification.clone())
+            .unwrap_or_else(fallback_unknown_classification)
+    } else {
+        let api_key = state.active_api_key();
+        classify_snapshot(
+            state,
+            app,
+            &api_key,
+            &snapshot.process_name,
+            &snapshot.window_title,
+        )
+    };
+
+    finalize_previous_sample(
+        state,
+        previous_sample.as_ref(),
+        if day_changed { day_start } else { now },
+        "failed to update activity duration",
+    );
+
+    if same_window && !day_changed {
+        // The open row was already refreshed above; keep it active.
+        return classification;
+    }
+
+    let timestamp = if day_changed && same_window {
+        day_start
+    } else {
+        now
+    };
+
+    let id = match insert_activity_sample(state, timestamp, snapshot, &classification) {
+        Ok(id) => id,
+        Err(error) => {
+            log::error!("failed to insert activity sample: {error}");
+            return classification;
+        }
+    };
+
+    *previous_sample = Some(PreviousSample {
+        id,
+        timestamp,
+        classification: classification.clone(),
+        tracking_key: tracker::WindowTrackingKey::from_snapshot(snapshot),
+    });
+
+    if day_changed && same_window {
+        let duration_ms = (now - day_start).max(0);
+        if let Err(error) = update_sample_duration(
+            state,
+            id,
+            duration_ms,
+            "failed to extend rollover activity duration",
+        ) {
+            log::warn!("failed to extend rollover activity duration: {error}");
+        }
+    }
+
+    classification
 }
 
 fn day_start_timestamp(date: &str) -> i64 {
@@ -1534,5 +1834,15 @@ mod tests {
         assert_eq!(state.active_api_key(), "cached-secret");
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn missing_autostart_entry_error_is_treated_as_idempotent() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "The system cannot find the file specified.",
+        );
+
+        assert!(is_missing_autostart_entry_error(&error));
     }
 }

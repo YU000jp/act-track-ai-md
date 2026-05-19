@@ -7,9 +7,11 @@ import type { DashboardClient } from "./tauri-bridge";
 import { parseBootstrapTimeout, withTimeout } from "./helpers";
 import type { DashboardErrorState, DashboardToast, TabKey } from "./types";
 import { useMemoryController } from "./useMemoryController";
+import { useClassificationController } from "./useClassificationController";
 import { useSettingsController } from "./useSettingsController";
 import { useSummaryController } from "./useSummaryController";
 import { useStatsController } from "./useStatsController";
+import { useTimelineController } from "./useTimelineController";
 import { useTrackingController } from "./useTrackingController";
 
 type ControllerProps = {
@@ -27,6 +29,7 @@ export type DashboardController = {
   toasts: () => DashboardToast[];
   todayStats: ReturnType<typeof useStatsController>["todayStats"];
   topApps: ReturnType<typeof useStatsController>["topApps"];
+  recentWindows: ReturnType<typeof useTimelineController>["recentWindows"];
   rangeStats: ReturnType<typeof useStatsController>["rangeStats"];
   rangeWindow: ReturnType<typeof useStatsController>["rangeWindow"];
   rangeLoading: ReturnType<typeof useStatsController>["rangeLoading"];
@@ -34,6 +37,7 @@ export type DashboardController = {
   settings: ReturnType<typeof useSettingsController>["settings"];
   geminiApiKey: ReturnType<typeof useSettingsController>["geminiApiKey"];
   settingsFeedback: ReturnType<typeof useSettingsController>["settingsFeedback"];
+  classification: ReturnType<typeof useClassificationController>;
   trackingStatus: ReturnType<typeof useTrackingController>["trackingStatus"];
   isTogglingTracking: ReturnType<typeof useTrackingController>["isTogglingTracking"];
   memoryStatus: ReturnType<typeof useMemoryController>["memoryStatus"];
@@ -86,13 +90,21 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   // If the aggregate snapshot stalls, rehydrate the visible shell from smaller RPCs
   // so the dashboard can become interactive instead of staying on the loading hint.
   async function hydrateDashboardFallback(): Promise<void> {
-    const [todaySummaryResult, topAppsResult, settingsResult, trackingResult, memorySnapshotResult] =
+    const [
+      todaySummaryResult,
+      topAppsResult,
+      settingsResult,
+      trackingResult,
+      memorySnapshotResult,
+      classificationRulesResult,
+    ] =
       await Promise.allSettled([
         props.rpc.getTodaySummary(),
         props.rpc.getTopApps(),
         props.rpc.getSettings(),
         props.rpc.getTrackingStatus(),
         props.rpc.getMemorySnapshot(10),
+        props.rpc.getClassificationRules(),
       ]);
 
     if (todaySummaryResult.status === "fulfilled" && topAppsResult.status === "fulfilled") {
@@ -128,6 +140,12 @@ export function useDashboardController(props: ControllerProps): DashboardControl
         memorySnapshotResult.value.memoryRecords,
       );
     }
+
+    if (classificationRulesResult.status === "fulfilled") {
+      classificationController.hydrateRules(classificationRulesResult.value);
+    }
+
+    await timelineController.refreshTodayTimeline();
   }
 
   const settingsController = useSettingsController({
@@ -146,11 +164,22 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     pushToast,
   });
 
+  const classificationController = useClassificationController({
+    rpc: props.rpc,
+    reportError: reportDashboardError,
+    pushToast,
+    syncSettingsJson: (value) => settingsController.onSettingChange("classificationRulesJson", value),
+  });
+
   const summaryController = useSummaryController({
     rpc: props.rpc,
     memoryController,
     reportError: reportDashboardError,
     pushToast,
+  });
+
+  const timelineController = useTimelineController({
+    rpc: props.rpc,
   });
 
   const trackingController = useTrackingController({
@@ -193,9 +222,11 @@ export function useDashboardController(props: ControllerProps): DashboardControl
         7,
       );
       settingsController.hydrateSettings(bootstrap.settings);
+      classificationController.hydrateRules(bootstrap.classificationRules);
       summaryController.hydrateSummary(bootstrap.dailySummary?.aiSummary);
       memoryController.hydrateMemory(bootstrap.memoryStatus, bootstrap.memoryRecords);
       trackingController.hydrateTracking(bootstrap.trackingStatus);
+      await timelineController.refreshTodayTimeline();
       clearDashboardError();
     } catch (error) {
       reportDashboardError("Failed to load dashboard snapshot", error);
@@ -223,6 +254,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     toasts,
     todayStats: statsController.todayStats,
     topApps: statsController.topApps,
+    recentWindows: timelineController.recentWindows,
     rangeStats: statsController.rangeStats,
     rangeWindow: statsController.rangeWindow,
     rangeLoading: statsController.rangeLoading,
@@ -230,6 +262,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     settings: settingsController.settings,
     geminiApiKey: settingsController.geminiApiKey,
     settingsFeedback: settingsController.settingsFeedback,
+    classification: classificationController,
     trackingStatus: trackingController.trackingStatus,
     isTogglingTracking: trackingController.isTogglingTracking,
     memoryStatus: memoryController.memoryStatus,
@@ -239,7 +272,13 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     setSummaryFeedback: summaryController.setSummaryFeedback,
     setGeminiApiKey: settingsController.setGeminiApiKey,
     onSettingChange: settingsController.onSettingChange,
-    saveSettings: settingsController.saveSettings,
+    saveSettings: async (event: SubmitEvent) => {
+      const saved = await settingsController.saveSettings(event);
+      if (saved) {
+        await classificationController.reloadRules();
+      }
+      return saved;
+    },
     generateSummaryNow: summaryController.generateSummaryNow,
     saveSummaryFeedback: summaryController.saveSummaryFeedback,
     handleMemoryAction: memoryController.handleMemoryAction,

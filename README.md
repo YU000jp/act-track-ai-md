@@ -42,8 +42,15 @@ Open the Settings screen in the app to enter your Gemini API key. The key is sto
 pnpm run tauri:dev
 ```
 
-Tauri runs `scripts/dev-frontend.mjs` automatically before the app starts. The dashboard is served from `http://127.0.0.1:1420` with rebuild-triggered page reloads.
-If a previous dev run was interrupted, `pnpm run dev:frontend:stop` clears stale dashboard and app processes before the next launch.
+Tauri starts the Vite dev server automatically before the app starts. The dashboard is served from `http://127.0.0.1:1420` with Vite HMR.
+
+To run the dashboard frontend by itself:
+
+```bash
+pnpm run dev:frontend
+```
+
+If Vite reports an outdated optimize cache, rerun with `pnpm run dev:frontend -- --force` or delete `node_modules/.vite-dashboard`.
 
 ## Build
 
@@ -51,7 +58,7 @@ If a previous dev run was interrupted, `pnpm run dev:frontend:stop` clears stale
 pnpm run tauri:build
 ```
 
-Tauri runs `scripts/build-frontend.mjs` automatically before packaging.
+Tauri runs `pnpm run build:frontend` automatically before packaging.
 
 ## Verification
 
@@ -67,6 +74,6 @@ pnpm run tauri:build
 
 - The dashboard UI lives in `src/frontend/dashboard` and is implemented with SolidJS.
 - `pnpm run build:frontend` generates the bundled dashboard entrypoint used by Tauri for packaging.
-- `pnpm run dev:frontend` starts the local dashboard server used by `pnpm run tauri:dev`.
+- `pnpm run dev:frontend` starts the local Vite dashboard server.
 - Local data is stored under the app data directory.
 - Non-secret settings are persisted in SQLite. The Gemini API key is stored in the OS credential store.

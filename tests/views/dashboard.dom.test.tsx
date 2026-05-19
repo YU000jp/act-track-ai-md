@@ -11,7 +11,7 @@ import {
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
 import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
-import { DEFAULT_SETTINGS, type AppSettings, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, type ActivitySample, type AppSettings, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
@@ -86,6 +86,23 @@ function createDashboardRpcStub(): DashboardClient {
       ],
       topApps: summary.topApps,
     },
+    classificationRules: [
+      {
+        id: 1,
+        priority: 1,
+        processNamePattern: "code",
+        windowTitlePattern: "index.ts - VSCode",
+        category: "productive",
+        label: "Coding",
+        enabled: true,
+        scope: "both",
+        source: "manual",
+        hitCount: 3,
+        lastUsedAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ],
     settings: DEFAULT_SETTINGS,
     trackingStatus: { running: false, state: "paused" },
     dailySummary: summary,
@@ -153,11 +170,87 @@ function createDashboardRpcStub(): DashboardClient {
       ],
       topApps: summary.topApps,
     })),
-    getTimeline: vi.fn(async () => []),
+    getTimeline: vi.fn(async () => {
+      const samples: ActivitySample[] = [
+        {
+          id: 1,
+          timestamp: Date.now(),
+          processName: "code",
+          windowTitle: "index.ts - VSCode",
+          durationMs: 5_000,
+          category: "productive",
+          label: "Coding",
+        },
+      ];
+
+      return samples;
+    }),
     getDailySummary: vi.fn(async () => summary),
     getSettings: vi.fn(async () => DEFAULT_SETTINGS),
     getTrackingStatus: vi.fn(async (): Promise<TrackingStatus> => ({ running: false, state: "paused" })),
     getDashboardBootstrap: vi.fn(async () => bootstrap),
+    getClassificationRules: vi.fn(async () => bootstrap.classificationRules),
+    saveClassificationRule: vi.fn(async ({ rule }): Promise<ClassificationRuleRecord> => ({
+      id: 2,
+      priority: 2,
+      processNamePattern: rule.processNamePattern,
+      windowTitlePattern: rule.windowTitlePattern,
+      category: rule.category,
+      label: rule.label,
+      enabled: rule.enabled,
+      scope: rule.scope,
+      source: "manual",
+      hitCount: 0,
+      lastUsedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })),
+    deleteClassificationRule: vi.fn(async () => undefined),
+    setClassificationRuleEnabled: vi.fn(async ({ id, enabled }): Promise<ClassificationRuleRecord> => ({
+      id,
+      priority: 1,
+      processNamePattern: "code",
+      windowTitlePattern: "index.ts - VSCode",
+      category: "productive",
+      label: "Coding",
+      enabled,
+      scope: "both",
+      source: "manual",
+      hitCount: 4,
+      lastUsedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })),
+    moveClassificationRule: vi.fn(async ({ id, direction }): Promise<ClassificationRuleRecord> => ({
+      id,
+      priority: direction === "up" ? 2 : 1,
+      processNamePattern: "code",
+      windowTitlePattern: "index.ts - VSCode",
+      category: "productive",
+      label: "Coding",
+      enabled: true,
+      scope: "both",
+      source: "manual",
+      hitCount: 4,
+      lastUsedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })),
+    reorderClassificationRule: vi.fn(async ({ id, targetId, placement }): Promise<ClassificationRuleRecord> => ({
+      id,
+      priority: placement === "before" ? 2 : 1,
+      processNamePattern: "code",
+      windowTitlePattern: "index.ts - VSCode",
+      category: "productive",
+      label: `Coding ${targetId}`,
+      enabled: true,
+      scope: "both",
+      source: "manual",
+      hitCount: 4,
+      lastUsedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })),
     setSetting: vi.fn(async () => undefined),
     setSettings: vi.fn(async () => undefined),
     getSetting: vi.fn(async () => null),
@@ -222,6 +315,7 @@ describe("dashboard shell", () => {
     expect(root?.children).toHaveLength(0);
     expect(parsedDocument.querySelector("#tab-bar")).toBeNull();
     expect(parsedDocument.querySelector("#panel-today")).toBeNull();
+    expect(parsedDocument.querySelector("#panel-classification")).toBeNull();
     expect(parsedDocument.querySelector("#panel-settings")).toBeNull();
     expect(parsedDocument.querySelector("#summary-feedback")).toBeNull();
   });
@@ -245,6 +339,49 @@ describe("dashboard shell", () => {
     expect(controller.activeTab()).toBe("today");
     controller.setActiveTab("statistics");
     expect(controller.activeTab()).toBe("statistics");
+    controller.setActiveTab("memory");
+    expect(controller.activeTab()).toBe("memory");
+
+    await flushMicrotasks();
+    await flushPromises();
+    expect(controller.recentWindows()).toHaveLength(1);
+    expect(controller.recentWindows()[0]?.windowTitle).toBe("index.ts - VSCode");
+    expect(controller.classification.rules()).toHaveLength(1);
+    expect(controller.classification.sourceOptions()).toEqual(["manual"]);
+    expect(controller.classification.filteredRules()).toHaveLength(1);
+
+    controller.classification.setSearchQuery("code");
+    expect(controller.classification.filteredRules()).toHaveLength(1);
+    controller.classification.setEnabledFilter("disabled");
+    expect(controller.classification.filteredRules()).toHaveLength(0);
+    controller.classification.resetFilters();
+    controller.classification.setScopeFilter("both");
+    controller.classification.setSourceFilter("manual");
+    expect(controller.classification.filteredRules()).toHaveLength(1);
+
+    controller.classification.beginCreateRuleFromWindow(controller.recentWindows()[0] as ActivitySample);
+    expect(controller.classification.draft().processNamePattern).toBe("code");
+    expect(controller.classification.draft().windowTitlePattern).toBe("");
+    expect(controller.classification.draft().scope).toBe("process");
+    expect(controller.classification.hasDuplicateDraft()).toBe(false);
+    expect(controller.classification.duplicateSuggestions()).toHaveLength(0);
+    expect(controller.classification.titleScopeSuggestion()).toBe(null);
+    controller.classification.updateDraft("windowTitlePattern", "GitHub");
+    expect(controller.classification.titleScopeSuggestion()).toBe("both");
+
+    await controller.classification.duplicateRule(controller.classification.rules()[0] as ClassificationRuleRecord);
+    expect(rpc.saveClassificationRule).toHaveBeenCalledTimes(1);
+    expect(controller.classification.rules()).toHaveLength(2);
+
+    await controller.classification.reorderRule(
+      controller.classification.rules()[1] as ClassificationRuleRecord,
+      controller.classification.rules()[0] as ClassificationRuleRecord,
+      "before",
+    );
+    expect(rpc.reorderClassificationRule).toHaveBeenCalledTimes(1);
+
+    await controller.classification.moveRule(controller.classification.rules()[0] as ClassificationRuleRecord, "down");
+    expect(rpc.moveClassificationRule).toHaveBeenCalledTimes(1);
 
     await controller.generateSummaryNow();
     expect(rpc.generateSummaryNow).toHaveBeenCalledTimes(1);
@@ -322,6 +459,7 @@ describe("dashboard shell", () => {
           markdownExportPath: "/tmp/fallback",
           geminiApiKeyConfigured: false,
         })),
+        getClassificationRules: vi.fn(async () => []),
         getTrackingStatus: vi.fn(async (): Promise<TrackingStatus> => ({ running: true, state: "productive" })),
         getMemorySnapshot: vi.fn(async (): Promise<MemorySnapshot> => ({
           memoryStatus: {

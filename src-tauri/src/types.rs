@@ -20,6 +20,43 @@ impl ActivityCategory {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassificationRuleScope {
+    Process,
+    Title,
+    Both,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleDraft {
+    pub process_name_pattern: String,
+    pub window_title_pattern: String,
+    pub category: ActivityCategory,
+    pub label: String,
+    pub enabled: bool,
+    pub scope: ClassificationRuleScope,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassificationRuleRecord {
+    pub id: i64,
+    pub priority: i64,
+    pub process_name_pattern: String,
+    pub window_title_pattern: String,
+    pub category: ActivityCategory,
+    pub label: String,
+    pub enabled: bool,
+    pub scope: ClassificationRuleScope,
+    pub source: String,
+    pub hit_count: i64,
+    pub last_used_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassificationResult {

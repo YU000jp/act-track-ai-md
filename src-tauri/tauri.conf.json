@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.irdan.acttrackaimd",
   "build": {
-    "beforeDevCommand": "pnpm run dev:frontend:clean",
+    "beforeDevCommand": "pnpm run dev:frontend",
     "beforeBuildCommand": "pnpm run build:frontend",
     "devUrl": "http://127.0.0.1:1420",
     "frontendDist": "dist/dashboard"

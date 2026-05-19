@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
+import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
+  plugins: [solidPlugin()],
   resolve: {
     alias: [
       { find: /^solid-js\/web$/, replacement: "solid-js/web/dist/web.js" },
@@ -9,10 +11,6 @@ export default defineConfig({
       { find: /^solid-js\/dist\/server\.js$/, replacement: "solid-js/dist/solid.js" },
     ],
     conditions: ["browser", "development"],
-  },
-  esbuild: {
-    jsx: "automatic",
-    jsxImportSource: "solid-js/h",
   },
   test: {
     environment: "jsdom",

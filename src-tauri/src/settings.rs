@@ -1,14 +1,7 @@
 use serde::{Deserialize, Serialize};
+use crate::types::{ActivityCategory, ClassificationRuleScope};
 
-use crate::types::ActivityCategory;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClassificationRule {
-    pub process_name_pattern: String,
-    pub window_title_pattern: String,
-    pub category: ActivityCategory,
-    pub label: String,
-}
+pub use crate::types::ClassificationRuleDraft as ClassificationRule;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +138,12 @@ pub fn parse_classification_rules(raw: Option<&str>) -> Vec<ClassificationRule> 
             .map(str::trim)
             .unwrap_or("")
             .to_string();
+        let enabled = obj.get("enabled").and_then(|value| value.as_bool()).unwrap_or(true);
+        let scope = parse_classification_rule_scope(
+            obj.get("scope").and_then(|value| value.as_str()),
+            &process_name_pattern,
+            &window_title_pattern,
+        );
 
         if process_name_pattern.is_empty() && window_title_pattern.is_empty() {
             continue;
@@ -166,10 +165,16 @@ pub fn parse_classification_rules(raw: Option<&str>) -> Vec<ClassificationRule> 
             window_title_pattern,
             category,
             label,
+            enabled,
+            scope,
         });
     }
 
     rules
+}
+
+pub fn serialize_classification_rules(rules: &[ClassificationRule]) -> String {
+    serde_json::to_string(rules).unwrap_or_else(|_| "[]".to_string())
 }
 
 fn parse_boolean_setting(value: Option<String>, fallback: bool) -> bool {
@@ -195,4 +200,19 @@ fn parse_number_setting(value: Option<String>, fallback: i64, min_value: i64) ->
     }
 
     parsed
+}
+
+fn parse_classification_rule_scope(
+    scope: Option<&str>,
+    process_name_pattern: &str,
+    window_title_pattern: &str,
+) -> ClassificationRuleScope {
+    match scope {
+        Some("process") => ClassificationRuleScope::Process,
+        Some("title") => ClassificationRuleScope::Title,
+        Some("both") => ClassificationRuleScope::Both,
+        _ if !process_name_pattern.is_empty() && !window_title_pattern.is_empty() => ClassificationRuleScope::Both,
+        _ if !window_title_pattern.is_empty() => ClassificationRuleScope::Title,
+        _ => ClassificationRuleScope::Process,
+    }
 }

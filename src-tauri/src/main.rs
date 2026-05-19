@@ -27,8 +27,10 @@ use app::{
     create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_daily_summary,
     get_dashboard_bootstrap, get_memory_snapshot, get_memory_status, get_setting, get_settings,
     get_statistics_snapshot, get_timeline, get_today_summary, get_top_apps, get_tracking_status,
-    list_memories, load_tracking_enabled, pin_memory, save_summary_feedback, set_setting,
-    set_settings, set_tracking_enabled_on_state, toggle_tracking,
+    list_memories, load_tracking_enabled, pin_memory, save_classification_rule,
+    get_classification_rules, delete_classification_rule, set_classification_rule_enabled,
+    move_classification_rule, reorder_classification_rule,
+    save_summary_feedback, set_setting, set_settings, set_tracking_enabled_on_state, toggle_tracking,
 };
 use app_meta::PACKAGE_NAME;
 use db::Datastores;
@@ -37,7 +39,7 @@ use secrets::{
     gemini_api_key_configured, load_gemini_api_key, migrate_legacy_gemini_api_key,
     SystemGeminiKeyStore,
 };
-use settings::parse_classification_rules;
+use settings::{parse_classification_rules, serialize_classification_rules};
 
 fn main() {
     let run_result = tauri::Builder::default()
@@ -60,6 +62,12 @@ fn main() {
             get_settings,
             get_tracking_status,
             get_dashboard_bootstrap,
+            get_classification_rules,
+            save_classification_rule,
+            delete_classification_rule,
+            set_classification_rule_enabled,
+            move_classification_rule,
+            reorder_classification_rule,
             get_memory_snapshot,
             set_setting,
             get_setting,
@@ -89,12 +97,45 @@ fn main() {
             }
 
             let gemini_api_key = load_gemini_api_key(&SystemGeminiKeyStore).ok().flatten();
-            let settings = {
+            let mut settings = {
                 let configured = gemini_api_key_configured(&SystemGeminiKeyStore).unwrap_or(false);
                 settings::load_app_settings(|key| datastores.get_setting(key), configured)?
             };
-            let classification_rules =
+            let parsed_rules =
                 parse_classification_rules(Some(settings.classification_rules_json.as_str()));
+            let mut classification_rules = {
+                let current_rules = datastores.get_classification_rules()?;
+                if current_rules.is_empty() && !parsed_rules.is_empty() {
+                    datastores.replace_classification_rules_from_drafts(&parsed_rules, "json")?
+                } else {
+                    current_rules
+                }
+            };
+            if !classification_rules.is_empty()
+                && classification_rules
+                    .iter()
+                    .all(|rule| rule.priority == 0)
+            {
+                datastores.resequence_classification_rule_priorities(&classification_rules)?;
+                classification_rules = datastores.get_classification_rules()?;
+            }
+            settings.classification_rules_json = serialize_classification_rules(
+                &classification_rules
+                    .iter()
+                    .map(|rule| settings::ClassificationRule {
+                        process_name_pattern: rule.process_name_pattern.clone(),
+                        window_title_pattern: rule.window_title_pattern.clone(),
+                        category: rule.category,
+                        label: rule.label.clone(),
+                        enabled: rule.enabled,
+                        scope: rule.scope,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            datastores.set_setting(
+                "classificationRulesJson",
+                &settings.classification_rules_json,
+            )?;
             let state = Arc::new(create_app_state(
                 datastores,
                 memory_store,

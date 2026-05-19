@@ -18,7 +18,7 @@ export type SettingsController = {
   setSettingsFeedback: (value: string) => void;
   onSettingChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   hydrateSettings: (settings: AppSettings) => void;
-  saveSettings: (event: SubmitEvent) => Promise<void>;
+  saveSettings: (event: SubmitEvent) => Promise<boolean>;
 };
 
 export function useSettingsController(props: UseSettingsControllerProps): SettingsController {
@@ -41,7 +41,7 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
     setSettingsFeedback("");
   }
 
-  async function saveSettings(event: SubmitEvent): Promise<void> {
+  async function saveSettings(event: SubmitEvent): Promise<boolean> {
     event.preventDefault();
 
     try {
@@ -84,8 +84,10 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
         "Settings saved",
         restartKeys.length > 0 ? "Restart required for some changes." : "Changes are ready to use.",
       );
+      return true;
     } catch (error) {
       props.reportError("Failed to save settings", error);
+      return false;
     }
   }
 

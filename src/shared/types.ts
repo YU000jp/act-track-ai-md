@@ -3,10 +3,31 @@ export const STATISTICS_RANGES = [7, 14, 30] as const;
 
 export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
 export type StatisticsRange = (typeof STATISTICS_RANGES)[number];
+export type ClassificationRuleScope = "process" | "title" | "both";
+export type ClassificationRuleMovePlacement = "before" | "after";
 
 export type WindowSnapshot = {
   processName: string;
   windowTitle: string;
+};
+
+export type ClassificationRuleDraft = {
+  processNamePattern: string;
+  windowTitlePattern: string;
+  category: ActivityCategory;
+  label: string;
+  enabled: boolean;
+  scope: ClassificationRuleScope;
+};
+
+export type ClassificationRuleRecord = ClassificationRuleDraft & {
+  id: number;
+  priority: number;
+  source: string;
+  hitCount: number;
+  lastUsedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type ClassificationResult = {
@@ -94,6 +115,7 @@ export type DashboardBootstrapSnapshot = {
   };
   topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>;
   statisticsSnapshot: StatisticsSnapshot;
+  classificationRules: ClassificationRuleRecord[];
   settings: AppSettings;
   trackingStatus: TrackingStatus;
   dailySummary: DailySummary | null;
@@ -121,6 +143,12 @@ export type DashboardRPC = {
     getSettings: () => Promise<AppSettings>;
     getTrackingStatus: () => Promise<TrackingStatus>;
     getDashboardBootstrap: () => Promise<DashboardBootstrapSnapshot>;
+    getClassificationRules: () => Promise<ClassificationRuleRecord[]>;
+    saveClassificationRule: (input: { id?: number; rule: ClassificationRuleDraft }) => Promise<ClassificationRuleRecord>;
+    deleteClassificationRule: (input: { id: number }) => Promise<void>;
+    setClassificationRuleEnabled: (input: { id: number; enabled: boolean }) => Promise<ClassificationRuleRecord>;
+    moveClassificationRule: (input: { id: number; direction: "up" | "down" }) => Promise<ClassificationRuleRecord>;
+    reorderClassificationRule: (input: { id: number; targetId: number; placement: ClassificationRuleMovePlacement }) => Promise<ClassificationRuleRecord>;
     setSetting: (input: { key: string; value: string }) => Promise<void>;
     setSettings: (input: { settings: AppSettingsUpdate; geminiApiKey?: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;

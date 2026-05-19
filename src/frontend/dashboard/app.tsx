@@ -1,9 +1,12 @@
 import type { TrackingStatus } from "../../shared/types";
 import type { MemoryStatus } from "../../shared/types";
+import brandMarkUrl from "../assets/icon.png";
 import type { DashboardClient } from "./tauri-bridge";
+import { ClassificationPanel } from "./ClassificationPanel";
 import { DashboardTabs } from "./DashboardTabs";
 import { ErrorBanner } from "./ErrorBanner";
 import { DashboardStatusChip } from "./DashboardStatusChip";
+import { MemoryPanel } from "./MemoryPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { StatisticsPanel } from "./StatisticsPanel";
 import { TodayPanel } from "./TodayPanel";
@@ -62,7 +65,6 @@ export function App(props: AppProps) {
   });
 
   const trackingStatus = controller.trackingStatus;
-  const memoryStatus = controller.memoryStatus;
   const settings = controller.settings;
   const isTrackingTogglePending = controller.isTogglingTracking;
 
@@ -73,7 +75,7 @@ export function App(props: AppProps) {
 
       <header class="dashboard-hero">
         <div class="brand-block">
-          <img class="brand-mark" src="./icon.png" alt="ActTrack icon" />
+          <img class="brand-mark" src={brandMarkUrl} alt="ActTrack icon" />
           <div class="brand-copy">
             <p class="eyebrow">ActTrack AI MD</p>
             <h1>{controller.dashboardTitle}</h1>
@@ -91,8 +93,8 @@ export function App(props: AppProps) {
           />
           <DashboardStatusChip
             label="Memory"
-            value={describeMemoryStatus(memoryStatus())}
-            tone={memoryStatus()?.enabled ? "accent" : "neutral"}
+            value={describeMemoryStatus(controller.memoryStatus())}
+            tone={controller.memoryStatus()?.enabled ? "accent" : "neutral"}
           />
           <DashboardStatusChip
             label="Gemini"
@@ -133,11 +135,16 @@ export function App(props: AppProps) {
           active={controller.activeTab() === "today"}
           todayStats={controller.todayStats()}
           topApps={controller.topApps()}
+          recentWindows={controller.recentWindows()}
           summaryFeedback={controller.summaryFeedback()}
           summaryFeedbackStatus={controller.summaryFeedbackStatus()}
           onSummaryFeedbackChange={controller.setSummaryFeedback}
           onGenerateSummaryNow={() => void controller.generateSummaryNow()}
           onSaveSummaryFeedback={() => void controller.saveSummaryFeedback()}
+          onCreateRuleFromWindow={(sample) => {
+            controller.classification.beginCreateRuleFromWindow(sample);
+            controller.setActiveTab("classification");
+          }}
         />
 
         <StatisticsPanel
@@ -157,9 +164,18 @@ export function App(props: AppProps) {
           onSettingsSubmit={controller.saveSettings}
           onSettingChange={controller.onSettingChange}
           onGeminiApiKeyChange={controller.setGeminiApiKey}
-          memoryStatus={memoryStatus()}
+        />
+
+        <MemoryPanel
+          active={controller.activeTab() === "memory"}
+          memoryStatus={controller.memoryStatus()}
           memoryRecords={controller.memoryRecords()}
           onMemoryAction={(action, record) => void controller.handleMemoryAction(action, record)}
+        />
+
+        <ClassificationPanel
+          active={controller.activeTab() === "classification"}
+          controller={controller.classification}
         />
       </main>
     </div>

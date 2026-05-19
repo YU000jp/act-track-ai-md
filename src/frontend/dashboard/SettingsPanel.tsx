@@ -1,6 +1,5 @@
-import type { AppSettings, MemoryRecord, MemoryStatus, TrackingStatus } from "../../shared/types";
+import type { AppSettings, TrackingStatus } from "../../shared/types";
 import { DashboardSurface } from "./DashboardSurface";
-import { MemorySection } from "./MemorySection";
 import { parseIntegerInput } from "./helpers";
 
 type SettingsPanelProps = {
@@ -12,9 +11,6 @@ type SettingsPanelProps = {
   onSettingsSubmit: (event: SubmitEvent) => void;
   onSettingChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onGeminiApiKeyChange: (value: string) => void;
-  memoryStatus: MemoryStatus | null;
-  memoryRecords: MemoryRecord[];
-  onMemoryAction: (action: "pin" | "forget", record: MemoryRecord) => void;
 };
 
 function renderTrackingState(status: TrackingStatus): string {
@@ -38,11 +34,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return (
     <section id="panel-settings" class={`panel panel-settings ${props.active ? "active" : ""}`} aria-hidden={!props.active} role="tabpanel" aria-labelledby="tab-settings">
       <form id="settings-form" class="settings-form" onSubmit={(event) => props.onSettingsSubmit(event)}>
-        <div class="settings-grid">
+        <div class="settings-grid settings-grid-compact">
           <DashboardSurface
             eyebrow="AI"
             title="Summary controls"
-            description="Tune how the dashboard generates and rewrites summaries."
+            description="Keep the core summary controls up front. Advanced rule editing stays tucked away."
             class="settings-surface"
           >
             <div class="field-grid">
@@ -88,17 +84,21 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   onInput={(event) => props.onSettingChange("summaryTone", event.currentTarget.value)}
                 />
               </div>
-              <div class="form-group field-span">
-                <label for="classificationRulesJson">Classification rules JSON</label>
-                <textarea
-                  id="classificationRulesJson"
-                  name="classificationRulesJson"
-                  rows={9}
-                  placeholder='[{"processNamePattern":"code","windowTitlePattern":"github","category":"productive","label":"Coding"}]'
-                  value={props.settings.classificationRulesJson}
-                  onInput={(event) => props.onSettingChange("classificationRulesJson", event.currentTarget.value)}
-                />
-              </div>
+              <details class="settings-details field-span">
+                <summary>Advanced rule editor</summary>
+                <div class="settings-details-body">
+                  <label for="classificationRulesJson">Classification rules JSON</label>
+                  <textarea
+                    id="classificationRulesJson"
+                    name="classificationRulesJson"
+                    rows={8}
+                    placeholder='[{"processNamePattern":"code","category":"productive","label":"Coding"}]'
+                    value={props.settings.classificationRulesJson}
+                    onInput={(event) => props.onSettingChange("classificationRulesJson", event.currentTarget.value)}
+                  />
+                  <div class="settings-hint">Use the management screen for day-to-day edits. JSON is kept for bulk changes and recovery.</div>
+                </div>
+              </details>
             </div>
           </DashboardSurface>
 
@@ -135,126 +135,123 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 </label>
                 <div class="settings-hint">Applies only when auto start is enabled.</div>
               </div>
-              <div class="form-group">
-                <label for="dashboardBootstrapTimeoutMs">Dashboard bootstrap timeout (ms)</label>
-                <input
-                  type="number"
-                  id="dashboardBootstrapTimeoutMs"
-                  name="dashboardBootstrapTimeoutMs"
-                  min={1000}
-                  value={props.settings.dashboardBootstrapTimeoutMs}
-                  onInput={(event) =>
-                    props.onSettingChange(
-                      "dashboardBootstrapTimeoutMs",
-                      parseIntegerInput(
-                        event.currentTarget.value,
-                        props.settings.dashboardBootstrapTimeoutMs,
-                        1000,
-                      ),
-                    )
-                  }
-                />
-                <div class="settings-hint">Controls how long the dashboard waits before switching to fallback hydration.</div>
-              </div>
-              <div class="form-group">
-                <label for="pollIntervalMs">Poll interval (ms)</label>
-                <input
-                  type="number"
-                  id="pollIntervalMs"
-                  name="pollIntervalMs"
-                  min={1000}
-                  value={props.settings.pollIntervalMs}
-                  onInput={(event) => props.onSettingChange("pollIntervalMs", parseIntegerInput(event.currentTarget.value, props.settings.pollIntervalMs, 1000))}
-                />
-              </div>
-              <div class="form-group">
-                <label for="idleTimeoutMs">Idle timeout (ms)</label>
-                <input
-                  type="number"
-                  id="idleTimeoutMs"
-                  name="idleTimeoutMs"
-                  min={10000}
-                  value={props.settings.idleTimeoutMs}
-                  onInput={(event) => props.onSettingChange("idleTimeoutMs", parseIntegerInput(event.currentTarget.value, props.settings.idleTimeoutMs, 10000))}
-                />
-              </div>
-              <div class="form-group">
-                <label for="notificationCooldownMs">Notification cooldown (ms)</label>
-                <input
-                  type="number"
-                  id="notificationCooldownMs"
-                  name="notificationCooldownMs"
-                  min={0}
-                  value={props.settings.notificationCooldownMs}
-                  onInput={(event) => props.onSettingChange("notificationCooldownMs", parseIntegerInput(event.currentTarget.value, props.settings.notificationCooldownMs, 0))}
-                />
-              </div>
-              <div class="form-group">
-                <label for="gracePeriodMs">Grace period (ms)</label>
-                <input
-                  type="number"
-                  id="gracePeriodMs"
-                  name="gracePeriodMs"
-                  min={0}
-                  value={props.settings.gracePeriodMs}
-                  onInput={(event) => props.onSettingChange("gracePeriodMs", parseIntegerInput(event.currentTarget.value, props.settings.gracePeriodMs, 0))}
-                />
-              </div>
+              <details class="settings-details field-span">
+                <summary>Advanced timing</summary>
+                <div class="settings-details-body">
+                  <div class="form-group">
+                    <label for="dashboardBootstrapTimeoutMs">Dashboard bootstrap timeout (ms)</label>
+                    <input
+                      type="number"
+                      id="dashboardBootstrapTimeoutMs"
+                      name="dashboardBootstrapTimeoutMs"
+                      min={1000}
+                      value={props.settings.dashboardBootstrapTimeoutMs}
+                      onInput={(event) =>
+                        props.onSettingChange(
+                          "dashboardBootstrapTimeoutMs",
+                          parseIntegerInput(
+                            event.currentTarget.value,
+                            props.settings.dashboardBootstrapTimeoutMs,
+                            1000,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="pollIntervalMs">Poll interval (ms)</label>
+                    <input
+                      type="number"
+                      id="pollIntervalMs"
+                      name="pollIntervalMs"
+                      min={1000}
+                      value={props.settings.pollIntervalMs}
+                      onInput={(event) => props.onSettingChange("pollIntervalMs", parseIntegerInput(event.currentTarget.value, props.settings.pollIntervalMs, 1000))}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="idleTimeoutMs">Idle timeout (ms)</label>
+                    <input
+                      type="number"
+                      id="idleTimeoutMs"
+                      name="idleTimeoutMs"
+                      min={10000}
+                      value={props.settings.idleTimeoutMs}
+                      onInput={(event) => props.onSettingChange("idleTimeoutMs", parseIntegerInput(event.currentTarget.value, props.settings.idleTimeoutMs, 10000))}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="notificationCooldownMs">Notification cooldown (ms)</label>
+                    <input
+                      type="number"
+                      id="notificationCooldownMs"
+                      name="notificationCooldownMs"
+                      min={0}
+                      value={props.settings.notificationCooldownMs}
+                      onInput={(event) => props.onSettingChange("notificationCooldownMs", parseIntegerInput(event.currentTarget.value, props.settings.notificationCooldownMs, 0))}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="gracePeriodMs">Grace period (ms)</label>
+                    <input
+                      type="number"
+                      id="gracePeriodMs"
+                      name="gracePeriodMs"
+                      min={0}
+                      value={props.settings.gracePeriodMs}
+                      onInput={(event) => props.onSettingChange("gracePeriodMs", parseIntegerInput(event.currentTarget.value, props.settings.gracePeriodMs, 0))}
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
           </DashboardSurface>
 
           <DashboardSurface
             eyebrow="Delivery"
-            title="Export & notifications"
-            description="Shape where markdown lands and how the app should notify you."
+            title="Export and notifications"
+            description="Keep delivery defaults visible and leave the heavier knobs collapsed."
             class="settings-surface"
           >
-            <div class="field-grid">
-              <div class="form-group field-span">
-                <label for="markdownExportPath">Markdown export directory</label>
-                <input
-                  type="text"
-                  id="markdownExportPath"
-                  name="markdownExportPath"
-                  value={props.settings.markdownExportPath}
-                  placeholder="~/act-track-logs"
-                  onInput={(event) => props.onSettingChange("markdownExportPath", event.currentTarget.value)}
-                />
-              </div>
-              <div class="form-group checkbox field-span">
-                <label>
+            <div class="settings-split-block">
+              <div class="field-grid">
+                <div class="form-group field-span">
+                  <label for="markdownExportPath">Markdown export directory</label>
                   <input
-                    type="checkbox"
-                    id="markdownPrivacyMode"
-                    name="markdownPrivacyMode"
-                    checked={props.settings.markdownPrivacyMode}
-                    onInput={(event) => props.onSettingChange("markdownPrivacyMode", event.currentTarget.checked)}
+                    type="text"
+                    id="markdownExportPath"
+                    name="markdownExportPath"
+                    value={props.settings.markdownExportPath}
+                    placeholder="~/act-track-logs"
+                    onInput={(event) => props.onSettingChange("markdownExportPath", event.currentTarget.value)}
                   />
-                  Hide sensitive window titles in markdown exports
-                </label>
-              </div>
-              <div class="form-group checkbox field-span">
-                <label>
-                  <input
-                    type="checkbox"
-                    id="notificationsEnabled"
-                    name="notificationsEnabled"
-                    checked={props.settings.notificationsEnabled}
-                    onInput={(event) => props.onSettingChange("notificationsEnabled", event.currentTarget.checked)}
-                  />
-                  Enable notifications
-                </label>
+                </div>
+                <div class="form-group checkbox field-span">
+                  <label>
+                    <input
+                      type="checkbox"
+                      id="markdownPrivacyMode"
+                      name="markdownPrivacyMode"
+                      checked={props.settings.markdownPrivacyMode}
+                      onInput={(event) => props.onSettingChange("markdownPrivacyMode", event.currentTarget.checked)}
+                    />
+                    Hide sensitive window titles in markdown exports
+                  </label>
+                </div>
+                <div class="form-group checkbox field-span">
+                  <label>
+                    <input
+                      type="checkbox"
+                      id="notificationsEnabled"
+                      name="notificationsEnabled"
+                      checked={props.settings.notificationsEnabled}
+                      onInput={(event) => props.onSettingChange("notificationsEnabled", event.currentTarget.checked)}
+                    />
+                    Enable notifications
+                  </label>
+                </div>
               </div>
             </div>
-          </DashboardSurface>
-
-          <DashboardSurface
-            eyebrow="Memory"
-            title="Memory console"
-            description="Keep pinned notes and recent feedback visible while adjusting settings."
-            class="settings-surface"
-          >
-            <MemorySection memoryStatus={props.memoryStatus} memoryRecords={props.memoryRecords} onMemoryAction={props.onMemoryAction} />
           </DashboardSurface>
         </div>
 

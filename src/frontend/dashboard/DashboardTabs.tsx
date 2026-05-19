@@ -33,6 +33,30 @@ export function DashboardTabs(props: DashboardTabsProps) {
         <span class="tab-hint">composition</span>
       </button>
       <button
+        id="tab-classification"
+        class={`tab-btn ${props.activeTab === "classification" ? "active" : ""}`}
+        type="button"
+        role="tab"
+        aria-selected={props.activeTab === "classification"}
+        aria-controls="panel-classification"
+        onClick={() => props.onChange("classification")}
+      >
+        <span class="tab-label">Classification</span>
+        <span class="tab-hint">rules</span>
+      </button>
+      <button
+        id="tab-memory"
+        class={`tab-btn ${props.activeTab === "memory" ? "active" : ""}`}
+        type="button"
+        role="tab"
+        aria-selected={props.activeTab === "memory"}
+        aria-controls="panel-memory"
+        onClick={() => props.onChange("memory")}
+      >
+        <span class="tab-label">Memory</span>
+        <span class="tab-hint">notes</span>
+      </button>
+      <button
         id="tab-settings"
         class={`tab-btn ${props.activeTab === "settings" ? "active" : ""}`}
         type="button"

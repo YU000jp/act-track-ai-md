@@ -1,11 +1,6 @@
-import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppSettings } from "./types"
+import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppSettings, type ClassificationRuleDraft, type ClassificationRuleScope } from "./types"
 
-export type ClassificationRule = {
-  processNamePattern: string;
-  windowTitlePattern: string;
-  category: ActivityCategory;
-  label: string;
-};
+export type ClassificationRule = ClassificationRuleDraft;
 
 export const RESTART_REQUIRED_SETTINGS: Array<keyof AppSettings> = [
   "pollIntervalMs",
@@ -112,6 +107,8 @@ export function parseClassificationRules(raw: string | null | undefined): Classi
       typeof candidate.windowTitlePattern === "string" ? candidate.windowTitlePattern.trim() : "";
     const category = candidate.category;
     const label = typeof candidate.label === "string" ? candidate.label.trim() : "";
+    const enabled = typeof candidate.enabled === "boolean" ? candidate.enabled : true;
+    const scope = parseClassificationRuleScope(candidate.scope, processNamePattern, windowTitlePattern);
 
     if (!processNamePattern && !windowTitlePattern) {
       return [];
@@ -131,7 +128,42 @@ export function parseClassificationRules(raw: string | null | undefined): Classi
         windowTitlePattern,
         category: category as ActivityCategory,
         label,
+        enabled,
+        scope,
       },
     ];
   });
+}
+
+export function serializeClassificationRules(rules: ClassificationRule[]): string {
+  return JSON.stringify(
+    rules.map((rule) => ({
+      processNamePattern: rule.processNamePattern,
+      windowTitlePattern: rule.windowTitlePattern,
+      category: rule.category,
+      label: rule.label,
+      enabled: rule.enabled,
+      scope: rule.scope,
+    })),
+  );
+}
+
+function parseClassificationRuleScope(
+  scope: unknown,
+  processNamePattern: string,
+  windowTitlePattern: string,
+): ClassificationRuleScope {
+  if (scope === "process" || scope === "title" || scope === "both") {
+    return scope;
+  }
+
+  if (processNamePattern && windowTitlePattern) {
+    return "both";
+  }
+
+  if (windowTitlePattern) {
+    return "title";
+  }
+
+  return "process";
 }
