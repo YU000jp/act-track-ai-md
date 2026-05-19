@@ -1,6 +1,8 @@
 import type { AppSettings } from "../../shared/types";
 import { RESTART_REQUIRED_SETTINGS } from "../../shared/settings";
 
+export const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -37,4 +39,29 @@ export function parseIntegerInput(value: string, fallback: number, minValue = 0)
   }
 
   return parsed;
+}
+
+export function parseBootstrapTimeout(value: string | null | undefined): number {
+  return parseIntegerInput(value ?? "", DASHBOARD_BOOTSTRAP_TIMEOUT_MS, 1000);
+}
+
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timerId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timerId = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timerId !== undefined) {
+      window.clearTimeout(timerId);
+    }
+  }
 }

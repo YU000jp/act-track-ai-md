@@ -14,6 +14,7 @@ import { subscribeGeminiApiKeySettings } from "./tauri-bridge";
 type AppProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
+  subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
 };
 
 function describeTrackingState(status: TrackingStatus): string {
@@ -45,16 +46,25 @@ function describeMemoryStatus(status: MemoryStatus | null): string {
   return `${status.total} entries`;
 }
 
+function describeTrackingToggleLabel(status: TrackingStatus, isPending: boolean): string {
+  if (isPending) {
+    return status.running ? "Pausing..." : "Resuming...";
+  }
+
+  return status.running ? "Pause tracking" : "Resume tracking";
+}
+
 export function App(props: AppProps) {
   const controller = useDashboardController({
     rpc: props.rpc,
     subscribeTrackingStatus: props.subscribeTrackingStatus,
-    subscribeGeminiApiKeySettings,
+    subscribeGeminiApiKeySettings: props.subscribeGeminiApiKeySettings ?? subscribeGeminiApiKeySettings,
   });
 
   const trackingStatus = controller.trackingStatus;
   const memoryStatus = controller.memoryStatus;
   const settings = controller.settings;
+  const isTrackingTogglePending = controller.isTogglingTracking;
 
   return (
     <div class={`dashboard-shell ${controller.isHydrated() ? "is-hydrated" : "is-loading"}`}>
@@ -89,6 +99,15 @@ export function App(props: AppProps) {
             value={settings().geminiApiKeyConfigured ? "Configured" : "Not set"}
             tone={settings().geminiApiKeyConfigured ? "success" : "warning"}
           />
+          <button
+            type="button"
+            class={`btn-secondary tracking-toggle-btn ${trackingStatus().running ? "tracking-toggle-running" : "tracking-toggle-paused"}`}
+            disabled={!controller.isHydrated() || isTrackingTogglePending()}
+            aria-busy={isTrackingTogglePending()}
+            onClick={() => void controller.toggleTracking()}
+          >
+            {describeTrackingToggleLabel(trackingStatus(), isTrackingTogglePending())}
+          </button>
           {controller.errorState() ? (
             <DashboardStatusChip label="Sync" value="Needs attention" tone="danger" />
           ) : null}
@@ -102,7 +121,11 @@ export function App(props: AppProps) {
         <div class="workspace-header">
           <DashboardTabs activeTab={controller.activeTab()} onChange={controller.setActiveTab} />
           <p class="workspace-hint">
-            {controller.isHydrated() ? "Live snapshot ready" : "Loading dashboard snapshot..."}
+            {controller.isHydrated()
+              ? controller.errorState()
+                ? "Showing fallback dashboard data."
+                : "Live snapshot ready"
+              : "Loading dashboard snapshot..."}
           </p>
         </div>
 

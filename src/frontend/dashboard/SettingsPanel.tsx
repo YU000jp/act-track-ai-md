@@ -136,6 +136,27 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <div class="settings-hint">Applies only when auto start is enabled.</div>
               </div>
               <div class="form-group">
+                <label for="dashboardBootstrapTimeoutMs">Dashboard bootstrap timeout (ms)</label>
+                <input
+                  type="number"
+                  id="dashboardBootstrapTimeoutMs"
+                  name="dashboardBootstrapTimeoutMs"
+                  min={1000}
+                  value={props.settings.dashboardBootstrapTimeoutMs}
+                  onInput={(event) =>
+                    props.onSettingChange(
+                      "dashboardBootstrapTimeoutMs",
+                      parseIntegerInput(
+                        event.currentTarget.value,
+                        props.settings.dashboardBootstrapTimeoutMs,
+                        1000,
+                      ),
+                    )
+                  }
+                />
+                <div class="settings-hint">Controls how long the dashboard waits before switching to fallback hydration.</div>
+              </div>
+              <div class="form-group">
                 <label for="pollIntervalMs">Poll interval (ms)</label>
                 <input
                   type="number"

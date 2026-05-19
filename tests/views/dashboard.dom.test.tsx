@@ -2,15 +2,23 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { formatDuration, getRestartRequiredKeys, parseIntegerInput } from "../../src/frontend/dashboard/helpers";
+import {
+  DASHBOARD_BOOTSTRAP_TIMEOUT_MS,
+  formatDuration,
+  getRestartRequiredKeys,
+  parseIntegerInput,
+} from "../../src/frontend/dashboard/helpers";
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
+import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
 import { DEFAULT_SETTINGS, type AppSettings, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
+const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
 
 const BASE_SETTINGS: AppSettings = {
   geminiApiKeyConfigured: true,
+  dashboardBootstrapTimeoutMs: 5000,
   pollIntervalMs: 3000,
   idleTimeoutMs: 300_000,
   notificationCooldownMs: 300_000,
@@ -33,6 +41,11 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function createDashboardRpcStub(): DashboardClient {
@@ -263,9 +276,149 @@ describe("dashboard shell", () => {
     expect(controller.rangeWindow()).toBe(14);
     expect(rpc.getStatisticsSnapshot).toHaveBeenLastCalledWith(14);
 
+    await controller.toggleTracking();
+    expect(rpc.toggleTracking).toHaveBeenCalledTimes(1);
+
     await flushMicrotasks();
     requestGeminiSettings?.();
     expect(controller.activeTab()).toBe("settings");
+
+    disposeRoot?.();
+  });
+
+  it("renders a header toggle for tracking and prevents duplicate clicks while pending", async () => {
+    const appSource = readFileSync(dashboardAppPath, "utf8");
+
+    expect(appSource).toContain("tracking-toggle-btn");
+    expect(appSource).toContain("Pause tracking");
+    expect(appSource).toContain("Resume tracking");
+    expect(appSource).toContain("aria-busy={isTrackingTogglePending()}");
+  });
+
+  it("falls back to staged dashboard data when bootstrap times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const fallbackSummary: DailySummary = {
+        date: "2026-05-19",
+        totalTrackedMs: 12_000,
+        productiveMs: 9_000,
+        distractionMs: 2_000,
+        neutralMs: 1_000,
+        topApps: [{ processName: "code", durationMs: 8_000, category: "productive" }],
+        aiSummary: null,
+      };
+      const rpc: DashboardClient = {
+        ...createDashboardRpcStub(),
+        getDashboardBootstrap: vi.fn(() => new Promise<DashboardBootstrapSnapshot>(() => undefined)),
+        getTodaySummary: vi.fn(async () => ({
+          trackedMs: fallbackSummary.totalTrackedMs,
+          productiveMs: fallbackSummary.productiveMs,
+          distractionMs: fallbackSummary.distractionMs,
+          neutralMs: fallbackSummary.neutralMs,
+        })),
+        getTopApps: vi.fn(async () => fallbackSummary.topApps),
+        getSettings: vi.fn(async () => ({
+          ...BASE_SETTINGS,
+          markdownExportPath: "/tmp/fallback",
+          geminiApiKeyConfigured: false,
+        })),
+        getTrackingStatus: vi.fn(async (): Promise<TrackingStatus> => ({ running: true, state: "productive" })),
+        getMemorySnapshot: vi.fn(async (): Promise<MemorySnapshot> => ({
+          memoryStatus: {
+            enabled: true,
+            backend: "sqlite",
+            total: 2,
+            pinned: 1,
+          },
+          memoryRecords: [
+            {
+              id: 7,
+              type: "pattern",
+              content: "Fallback memory",
+              metadata: {},
+              pinned: true,
+              createdAt: Date.now(),
+            },
+          ],
+        })),
+        getStatisticsSnapshot: vi.fn(async () => ({
+          rangeDays: 7,
+          startDate: "2026-05-13",
+          endDate: "2026-05-19",
+          trackedMs: fallbackSummary.totalTrackedMs,
+          productiveMs: fallbackSummary.productiveMs,
+          distractionMs: fallbackSummary.distractionMs,
+          neutralMs: fallbackSummary.neutralMs,
+          activeDays: 1,
+          dailyBreakdown: [
+            {
+              date: "2026-05-19",
+              trackedMs: fallbackSummary.totalTrackedMs,
+              productiveMs: fallbackSummary.productiveMs,
+              distractionMs: fallbackSummary.distractionMs,
+              neutralMs: fallbackSummary.neutralMs,
+            },
+          ],
+          topApps: fallbackSummary.topApps,
+        })),
+      };
+
+      let disposeRoot: (() => void) | undefined;
+      const controller = createRoot((dispose) => {
+        disposeRoot = dispose;
+        return useDashboardController({
+          rpc,
+        });
+      });
+
+      expect(controller.isHydrated()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(DASHBOARD_BOOTSTRAP_TIMEOUT_MS + 1);
+      await flushPromises();
+
+      expect(controller.isHydrated()).toBe(true);
+      expect(controller.errorState()).not.toBeNull();
+      expect(controller.todayStats().trackedMs).toBe(fallbackSummary.totalTrackedMs);
+      expect(controller.topApps()[0]?.processName).toBe("code");
+      expect(controller.settings().markdownExportPath).toBe("/tmp/fallback");
+      expect(controller.trackingStatus().running).toBe(true);
+      expect(controller.memoryStatus()?.total).toBe(2);
+      expect(controller.memoryRecords()).toHaveLength(1);
+
+      disposeRoot?.();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps summary generation successful when memory refresh is blocked", async () => {
+    const rpc = createDashboardRpcStub();
+    const reportError = vi.fn();
+    const pushToast = vi.fn();
+    const memoryController = {
+      refreshMemorySnapshot: vi.fn(async () => {
+        throw new Error("get_memory_snapshot not allowed. Command not found");
+      }),
+    };
+
+    let disposeRoot: (() => void) | undefined;
+    const controller = createRoot((dispose) => {
+      disposeRoot = dispose;
+      return useSummaryController({
+        rpc,
+        memoryController,
+        reportError,
+        pushToast,
+      });
+    });
+
+    await controller.generateSummaryNow();
+
+    expect(reportError).not.toHaveBeenCalled();
+    expect(controller.summaryFeedbackStatus()).toBe("Summary generated and exported.");
+    expect(rpc.generateSummaryNow).toHaveBeenCalledTimes(1);
+    expect(memoryController.refreshMemorySnapshot).toHaveBeenCalledTimes(1);
+    expect(pushToast).toHaveBeenCalledTimes(1);
 
     disposeRoot?.();
   });

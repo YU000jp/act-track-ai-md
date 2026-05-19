@@ -140,6 +140,7 @@ export type DashboardRPC = {
 
 export type AppSettings = {
   geminiApiKeyConfigured: boolean;
+  dashboardBootstrapTimeoutMs: number;
   pollIntervalMs: number;
   idleTimeoutMs: number;
   notificationCooldownMs: number;
@@ -158,6 +159,7 @@ export type AppSettingsUpdate = Omit<AppSettings, "geminiApiKeyConfigured">;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKeyConfigured: false,
+  dashboardBootstrapTimeoutMs: 5000,
   pollIntervalMs: 3000,
   idleTimeoutMs: 300_000,
   notificationCooldownMs: 300_000,

@@ -144,6 +144,7 @@ pub struct SettingInput {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsUpdate {
+    pub dashboard_bootstrap_timeout_ms: i64,
     pub poll_interval_ms: i64,
     pub idle_timeout_ms: i64,
     pub notification_cooldown_ms: i64,
@@ -573,7 +574,18 @@ pub fn get_dashboard_bootstrap(
         }
     };
 
-    let (today_summary, top_apps, statistics_snapshot, daily_summary) = {
+    let crate::db::BootstrapAggregationSnapshot {
+        today_summary:
+            crate::types::DailySummary {
+                total_tracked_ms,
+                productive_ms,
+                distraction_ms,
+                neutral_ms,
+                top_apps,
+                ..
+            },
+        statistics_snapshot,
+    } = {
         let datastores = state.datastores.lock().map_err(|error| {
             lock_error(
                 "get_dashboard_bootstrap",
@@ -590,51 +602,37 @@ pub fn get_dashboard_bootstrap(
                     format!("read dashboard bootstrap snapshot: {error}"),
                 )
             })?;
-        let ai_summary = datastores
+        bootstrap_snapshot
+    };
+
+    let ai_summary = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "get_dashboard_bootstrap",
+                "lock datastores for daily summary ai text",
+                error,
+            )
+        })?;
+        datastores
             .get_daily_summary_ai_summary(&today)
             .map_err(|error| {
                 AppError::database_for(
                     "get_dashboard_bootstrap",
                     format!("read daily summary ai summary for {today}: {error}"),
                 )
-            })?;
-
-        let crate::db::BootstrapAggregationSnapshot {
-            today_summary:
-                crate::types::DailySummary {
-                    total_tracked_ms,
-                    productive_ms,
-                    distraction_ms,
-                    neutral_ms,
-                    top_apps,
-                    ..
-                },
-            statistics_snapshot,
-        } = bootstrap_snapshot;
-
-        // Rehydrate the dashboard summary from the bootstrap aggregate and only fetch AI text separately.
-        let daily_summary = Some(DailySummary {
-            date: today.clone(),
-            total_tracked_ms,
-            productive_ms,
-            distraction_ms,
-            neutral_ms,
-            top_apps: top_apps.clone(),
-            ai_summary,
-        });
-
-        (
-            TodaySummary {
-                tracked_ms: total_tracked_ms,
-                productive_ms,
-                distraction_ms,
-                neutral_ms,
-            },
-            top_apps,
-            statistics_snapshot,
-            daily_summary,
-        )
+            })?
     };
+
+    // Rehydrate the dashboard summary from the bootstrap aggregate and fetch AI text in a separate read window.
+    let daily_summary = Some(DailySummary {
+        date: today.clone(),
+        total_tracked_ms,
+        productive_ms,
+        distraction_ms,
+        neutral_ms,
+        top_apps: top_apps.clone(),
+        ai_summary,
+    });
 
     let (memory_status, memory_records) = {
         let memory_store = state.memory_store.lock().map_err(|error| {
@@ -648,7 +646,12 @@ pub fn get_dashboard_bootstrap(
     };
 
     Ok(DashboardBootstrapSnapshot {
-        today_summary,
+        today_summary: TodaySummary {
+            tracked_ms: total_tracked_ms,
+            productive_ms,
+            distraction_ms,
+            neutral_ms,
+        },
         top_apps,
         statistics_snapshot,
         settings,
@@ -684,6 +687,7 @@ pub fn set_settings(
     persist_settings(&state, &input.settings)?;
 
     let mut updated_settings = state.settings_snapshot();
+    updated_settings.dashboard_bootstrap_timeout_ms = input.settings.dashboard_bootstrap_timeout_ms;
     updated_settings.poll_interval_ms = input.settings.poll_interval_ms;
     updated_settings.idle_timeout_ms = input.settings.idle_timeout_ms;
     updated_settings.notification_cooldown_ms = input.settings.notification_cooldown_ms;
@@ -1006,6 +1010,10 @@ fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate)
         .datastores
         .lock()
         .map_err(|error| lock_error("set_settings", "lock datastores for settings save", error))?;
+    datastores.set_setting(
+        "dashboardBootstrapTimeoutMs",
+        &settings.dashboard_bootstrap_timeout_ms.to_string(),
+    )?;
     datastores.set_setting("pollIntervalMs", &settings.poll_interval_ms.to_string())?;
     datastores.set_setting("idleTimeoutMs", &settings.idle_timeout_ms.to_string())?;
     datastores.set_setting(
@@ -1187,6 +1195,7 @@ fn parse_bool_setting(value: Option<&str>, fallback: bool) -> bool {
 fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<String> {
     let settings = state.settings_snapshot();
     match key {
+        "dashboardBootstrapTimeoutMs" => Some(settings.dashboard_bootstrap_timeout_ms.to_string()),
         "pollIntervalMs" => Some(settings.poll_interval_ms.to_string()),
         "idleTimeoutMs" => Some(settings.idle_timeout_ms.to_string()),
         "notificationCooldownMs" => Some(settings.notification_cooldown_ms.to_string()),
@@ -1206,6 +1215,11 @@ fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<S
 
 fn apply_setting_to_snapshot(settings: &mut AppSettings, key: &str, value: &str) {
     match key {
+        "dashboardBootstrapTimeoutMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.dashboard_bootstrap_timeout_ms = parsed.max(1000);
+            }
+        }
         "pollIntervalMs" => {
             if let Ok(parsed) = value.parse::<i64>() {
                 settings.poll_interval_ms = parsed.max(1);

@@ -48,6 +48,7 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
       const currentSettings = settings();
       const geminiKey = geminiApiKey().trim();
       const settingsToSave: AppSettingsUpdate = {
+        dashboardBootstrapTimeoutMs: currentSettings.dashboardBootstrapTimeoutMs,
         pollIntervalMs: currentSettings.pollIntervalMs,
         idleTimeoutMs: currentSettings.idleTimeoutMs,
         notificationCooldownMs: currentSettings.notificationCooldownMs,

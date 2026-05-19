@@ -14,6 +14,7 @@ pub struct ClassificationRule {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub gemini_api_key_configured: bool,
+    pub dashboard_bootstrap_timeout_ms: i64,
     pub poll_interval_ms: i64,
     pub idle_timeout_ms: i64,
     pub notification_cooldown_ms: i64,
@@ -32,6 +33,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             gemini_api_key_configured: false,
+            dashboard_bootstrap_timeout_ms: 5000,
             poll_interval_ms: 3000,
             idle_timeout_ms: 300_000,
             notification_cooldown_ms: 300_000,
@@ -56,6 +58,11 @@ pub fn load_app_settings(
 
     Ok(AppSettings {
         gemini_api_key_configured,
+        dashboard_bootstrap_timeout_ms: parse_number_setting(
+            get_setting("dashboardBootstrapTimeoutMs")?,
+            defaults.dashboard_bootstrap_timeout_ms,
+            1000,
+        ),
         poll_interval_ms: parse_number_setting(
             get_setting("pollIntervalMs")?,
             defaults.poll_interval_ms,

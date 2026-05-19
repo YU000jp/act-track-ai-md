@@ -19,7 +19,12 @@ async function bootstrap(): Promise<void> {
   // Keep the mount node empty so the Solid tree owns the full dashboard shell.
   app.replaceChildren();
   render(
-    () => <App rpc={rpc} subscribeTrackingStatus={subscribeTrackingStatus} />,
+    () => (
+      <App
+        rpc={rpc}
+        subscribeTrackingStatus={subscribeTrackingStatus}
+      />
+    ),
     app,
   );
 }

@@ -1060,6 +1060,29 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.tracking-toggle-btn {
+  min-width: 162px;
+  justify-content: center;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.tracking-toggle-running {
+  border-color: rgba(255, 197, 107, 0.28);
+  background: rgba(255, 197, 107, 0.11);
+}
+
+.tracking-toggle-paused {
+  border-color: rgba(134, 231, 255, 0.24);
+  background: rgba(134, 231, 255, 0.09);
+}
+
+.tracking-toggle-btn:disabled {
+  opacity: 0.76;
+  cursor: wait;
+  transform: none;
+}
+
 .btn-ghost {
   color: var(--text);
   border-color: rgba(150, 168, 255, 0.14);

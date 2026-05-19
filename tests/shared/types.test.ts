@@ -89,6 +89,7 @@ describe("shared types", () => {
 
   it("default settings include advanced customization fields", async () => {
     const mod = await import("../../src/shared/types");
+    expect(mod.DEFAULT_SETTINGS.dashboardBootstrapTimeoutMs).toBe(5000);
     expect(mod.DEFAULT_SETTINGS.summaryLanguage).toBe("Japanese");
     expect(mod.DEFAULT_SETTINGS.summaryTone).toBe("encouraging");
     expect(mod.DEFAULT_SETTINGS.markdownPrivacyMode).toBe(false);

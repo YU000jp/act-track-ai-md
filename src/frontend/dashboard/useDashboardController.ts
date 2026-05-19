@@ -4,6 +4,7 @@ import { APP_META } from "../../shared/app-meta";
 import type { DashboardBootstrapSnapshot } from "../../shared/types";
 import { type TrackingStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
+import { parseBootstrapTimeout, withTimeout } from "./helpers";
 import type { DashboardErrorState, DashboardToast, TabKey } from "./types";
 import { useMemoryController } from "./useMemoryController";
 import { useSettingsController } from "./useSettingsController";
@@ -34,6 +35,7 @@ export type DashboardController = {
   geminiApiKey: ReturnType<typeof useSettingsController>["geminiApiKey"];
   settingsFeedback: ReturnType<typeof useSettingsController>["settingsFeedback"];
   trackingStatus: ReturnType<typeof useTrackingController>["trackingStatus"];
+  isTogglingTracking: ReturnType<typeof useTrackingController>["isTogglingTracking"];
   memoryStatus: ReturnType<typeof useMemoryController>["memoryStatus"];
   memoryRecords: ReturnType<typeof useMemoryController>["memoryRecords"];
   summaryFeedback: ReturnType<typeof useSummaryController>["summaryFeedback"];
@@ -45,6 +47,7 @@ export type DashboardController = {
   generateSummaryNow: ReturnType<typeof useSummaryController>["generateSummaryNow"];
   saveSummaryFeedback: ReturnType<typeof useSummaryController>["saveSummaryFeedback"];
   handleMemoryAction: ReturnType<typeof useMemoryController>["handleMemoryAction"];
+  toggleTracking: () => Promise<void>;
 };
 
 export function useDashboardController(props: ControllerProps): DashboardController {
@@ -80,6 +83,53 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     pushToast("error", context, normalized.message);
   }
 
+  // If the aggregate snapshot stalls, rehydrate the visible shell from smaller RPCs
+  // so the dashboard can become interactive instead of staying on the loading hint.
+  async function hydrateDashboardFallback(): Promise<void> {
+    const [todaySummaryResult, topAppsResult, settingsResult, trackingResult, memorySnapshotResult] =
+      await Promise.allSettled([
+        props.rpc.getTodaySummary(),
+        props.rpc.getTopApps(),
+        props.rpc.getSettings(),
+        props.rpc.getTrackingStatus(),
+        props.rpc.getMemorySnapshot(10),
+      ]);
+
+    if (todaySummaryResult.status === "fulfilled" && topAppsResult.status === "fulfilled") {
+      const todaySummary = todaySummaryResult.value;
+      const topApps = topAppsResult.value;
+
+      statsController.hydrateStats(todaySummary, topApps, null, 7);
+
+      void props.rpc
+        .getStatisticsSnapshot(7)
+        .then((statisticsSnapshot) => {
+          statsController.hydrateStats(todaySummary, topApps, statisticsSnapshot, 7);
+        })
+        .catch((error) => {
+          console.warn(
+            "[dashboard] failed to load deferred statistics snapshot",
+            normalizeAppError(error),
+          );
+        });
+    }
+
+    if (settingsResult.status === "fulfilled") {
+      settingsController.hydrateSettings(settingsResult.value);
+    }
+
+    if (trackingResult.status === "fulfilled") {
+      trackingController.hydrateTracking(trackingResult.value);
+    }
+
+    if (memorySnapshotResult.status === "fulfilled") {
+      memoryController.hydrateMemory(
+        memorySnapshotResult.value.memoryStatus,
+        memorySnapshotResult.value.memoryRecords,
+      );
+    }
+  }
+
   const settingsController = useSettingsController({
     rpc: props.rpc,
     reportError: reportDashboardError,
@@ -104,6 +154,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   });
 
   const trackingController = useTrackingController({
+    rpc: props.rpc,
     subscribeTrackingStatus: props.subscribeTrackingStatus,
   });
 
@@ -126,7 +177,14 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
   async function hydrateDashboard(): Promise<void> {
     try {
-      const bootstrap: DashboardBootstrapSnapshot = await props.rpc.getDashboardBootstrap();
+      const configuredTimeout = parseBootstrapTimeout(
+        await props.rpc.getSetting("dashboardBootstrapTimeoutMs"),
+      );
+      const bootstrap: DashboardBootstrapSnapshot = await withTimeout(
+        props.rpc.getDashboardBootstrap(),
+        configuredTimeout,
+        "dashboard snapshot",
+      );
 
       statsController.hydrateStats(
         bootstrap.todaySummary,
@@ -140,7 +198,13 @@ export function useDashboardController(props: ControllerProps): DashboardControl
       trackingController.hydrateTracking(bootstrap.trackingStatus);
       clearDashboardError();
     } catch (error) {
-      reportDashboardError("Failed to load dashboard data", error);
+      reportDashboardError("Failed to load dashboard snapshot", error);
+      void hydrateDashboardFallback().catch((fallbackError) => {
+        console.warn(
+          "[dashboard] fallback dashboard hydration failed",
+          normalizeAppError(fallbackError),
+        );
+      });
     } finally {
       setIsHydrated(true);
     }
@@ -167,6 +231,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     geminiApiKey: settingsController.geminiApiKey,
     settingsFeedback: settingsController.settingsFeedback,
     trackingStatus: trackingController.trackingStatus,
+    isTogglingTracking: trackingController.isTogglingTracking,
     memoryStatus: memoryController.memoryStatus,
     memoryRecords: memoryController.memoryRecords,
     summaryFeedback: summaryController.summaryFeedback,
@@ -178,5 +243,12 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     generateSummaryNow: summaryController.generateSummaryNow,
     saveSummaryFeedback: summaryController.saveSummaryFeedback,
     handleMemoryAction: memoryController.handleMemoryAction,
+    toggleTracking: async () => {
+      try {
+        await trackingController.toggleTracking();
+      } catch (error) {
+        reportDashboardError("Failed to toggle tracking", error);
+      }
+    },
   };
 }

@@ -51,6 +51,11 @@ export function loadAppSettings(
 ): AppSettings {
   return {
     geminiApiKeyConfigured,
+    dashboardBootstrapTimeoutMs: parseNumberSetting(
+      getSetting("dashboardBootstrapTimeoutMs"),
+      DEFAULT_SETTINGS.dashboardBootstrapTimeoutMs,
+      1000,
+    ),
     pollIntervalMs: parseNumberSetting(getSetting("pollIntervalMs"), DEFAULT_SETTINGS.pollIntervalMs, 1),
     idleTimeoutMs: parseNumberSetting(getSetting("idleTimeoutMs"), DEFAULT_SETTINGS.idleTimeoutMs, 1),
     notificationCooldownMs: parseNumberSetting(

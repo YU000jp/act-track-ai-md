@@ -39,7 +39,13 @@ export function useSummaryController(props: UseSummaryControllerProps): SummaryC
           ? `Generated with AI fallback: ${report.aiSummaryError.message}`
           : "Summary generated and exported.",
       );
-      await props.memoryController.refreshMemorySnapshot();
+      try {
+        await props.memoryController.refreshMemorySnapshot();
+      } catch (error) {
+        // The summary generation already succeeded; keep the dashboard usable even if the
+        // memory refresh is blocked by permissions or a transient backend error.
+        console.warn("[dashboard] failed to refresh memory snapshot after summary generation", error);
+      }
       props.pushToast(
         "info",
         "Summary generated",
