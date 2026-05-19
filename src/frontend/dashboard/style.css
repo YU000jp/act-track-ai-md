@@ -991,19 +991,19 @@ textarea::placeholder {
   grid-row: auto;
 }
 
-:where(.settings-details, .classification-advanced) {
+:where(.settings-details, .classification-advanced, .classification-item-details) {
   padding: 14px 16px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(150, 168, 255, 0.12);
   background: rgba(255, 255, 255, 0.03);
 }
 
-:where(.settings-details, .classification-advanced):focus-within {
+:where(.settings-details, .classification-advanced, .classification-item-details):focus-within {
   border-color: rgba(134, 231, 255, 0.22);
   background: rgba(255, 255, 255, 0.05);
 }
 
-:where(.settings-details, .classification-advanced) summary {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1014,22 +1014,22 @@ textarea::placeholder {
   list-style: none;
 }
 
-:where(.settings-details, .classification-advanced) summary::-webkit-details-marker {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary::-webkit-details-marker {
   display: none;
 }
 
-:where(.settings-details, .classification-advanced) summary::before {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary::before {
   content: "▸";
   color: var(--text-soft);
   font-size: 0.78rem;
   transition: transform 160ms ease;
 }
 
-:where(.settings-details, .classification-advanced)[open] summary::before {
+:where(.settings-details, .classification-advanced, .classification-item-details)[open] summary::before {
   transform: rotate(90deg);
 }
 
-:where(.settings-details, .classification-advanced) summary::after {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary::after {
   content: "More";
   margin-left: auto;
   color: var(--text-soft);
@@ -1038,17 +1038,17 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
-:where(.settings-details, .classification-advanced)[open] summary::after {
+:where(.settings-details, .classification-advanced, .classification-item-details)[open] summary::after {
   content: "Less";
 }
 
-:where(.settings-details, .classification-advanced) summary:focus-visible {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary:focus-visible {
   outline: 2px solid rgba(134, 231, 255, 0.6);
   outline-offset: 3px;
   border-radius: 10px;
 }
 
-:where(.settings-details, .classification-advanced) summary > * {
+:where(.settings-details, .classification-advanced, .classification-item-details) summary > * {
   min-width: 0;
 }
 
@@ -1074,6 +1074,14 @@ textarea::placeholder {
   color: var(--text);
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.classification-condition-summary {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: right;
 }
 
 .settings-split-block {
@@ -1438,15 +1446,46 @@ textarea:focus-visible {
   gap: 14px;
 }
 
-.classification-item-title {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
+.classification-item-details {
+  flex: 1;
+  min-width: 0;
 }
 
-.classification-item-title strong {
+.classification-item-details summary {
+  align-items: flex-start;
+  width: 100%;
+}
+
+.classification-item-summary-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.classification-item-summary-copy strong {
   font-size: 0.98rem;
+}
+
+.classification-item-summary-text {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.classification-item-summary-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.classification-item-details-body {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
 }
 
 .classification-priority-pill {
@@ -1693,6 +1732,16 @@ textarea:focus-visible {
 
   .classification-item-head {
     flex-direction: column;
+  }
+
+  .classification-item-summary-meta {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .classification-condition-summary {
+    margin-left: 0;
+    text-align: left;
   }
 
   .classification-item-actions {

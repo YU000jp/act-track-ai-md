@@ -15,6 +15,34 @@ function formatRuleDate(timestamp: number | null): string {
   return new Date(timestamp).toLocaleString();
 }
 
+function describePattern(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "any";
+}
+
+function describeScope(scope: "process" | "title" | "both"): string {
+  switch (scope) {
+    case "process":
+      return "process";
+    case "title":
+      return "title";
+    case "both":
+      return "process + title";
+  }
+}
+
+function formatConditionSummary(rule: {
+  processNamePattern: string;
+  windowTitlePattern: string;
+  scope: "process" | "title" | "both";
+}): string {
+  return [
+    `Process: ${describePattern(rule.processNamePattern)}`,
+    `Title: ${describePattern(rule.windowTitlePattern)}`,
+    `Scope: ${describeScope(rule.scope)}`,
+  ].join(" · ");
+}
+
 function hasActiveFilters(controller: ClassificationController): boolean {
   return (
     controller.searchQuery().trim().length > 0 ||
@@ -53,7 +81,7 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
         <DashboardSurface
           eyebrow="Library"
           title="Classification rules"
-          description="Manual rules sit above cache and keep recurring windows classified consistently. Drag a rule to reorder it."
+          description="Manual rules sit above cache and keep recurring windows classified consistently. Conditions stay collapsed until you need them."
           class="surface-hero"
           actions={
             <>
@@ -223,13 +251,47 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
                         {isDropBefore() ? <div class="classification-drop-indicator classification-drop-indicator-before">Insert before</div> : null}
                         <div class="classification-item-main">
                           <div class="classification-item-head">
-                            <div class="classification-item-title">
-                              <strong>{rule.label}</strong>
-                              <span class={`classification-enabled-pill ${rule.enabled ? "is-enabled" : "is-disabled"}`}>
-                                {rule.enabled ? "Enabled" : "Disabled"}
-                              </span>
-                              <span class="classification-priority-pill">Priority {rule.priority}</span>
-                            </div>
+                            <details class="classification-item-details">
+                              {/* Keep the rule row compact; the summary carries the scan-friendly bits. */}
+                              <summary>
+                                <span class="classification-item-summary-copy">
+                                  <strong>{rule.label}</strong>
+                                  <span class="classification-item-summary-text">{formatConditionSummary(rule)}</span>
+                                </span>
+                                <span class="classification-item-summary-meta">
+                                  <span class={`classification-enabled-pill ${rule.enabled ? "is-enabled" : "is-disabled"}`}>
+                                    {rule.enabled ? "Enabled" : "Disabled"}
+                                  </span>
+                                  <span class="classification-priority-pill">Priority {rule.priority}</span>
+                                </span>
+                              </summary>
+                              <div class="classification-item-details-body">
+                                <div class="classification-patterns">
+                                  <span class="classification-field">
+                                    <strong>Process</strong>
+                                    <span>{rule.processNamePattern || "Any process"}</span>
+                                  </span>
+                                  <span class="classification-field">
+                                    <strong>Window</strong>
+                                    <span>{rule.windowTitlePattern || "Any title"}</span>
+                                  </span>
+                                  <span class="classification-field">
+                                    <strong>Scope</strong>
+                                    <span>{rule.scope}</span>
+                                  </span>
+                                  <span class="classification-field">
+                                    <strong>Source</strong>
+                                    <span>{rule.source}</span>
+                                  </span>
+                                </div>
+
+                                <div class="classification-metrics">
+                                  <span>Category: {rule.category}</span>
+                                  <span>Hits: {rule.hitCount}</span>
+                                  <span>Last used: {formatRuleDate(rule.lastUsedAt)}</span>
+                                </div>
+                              </div>
+                            </details>
                             <div class="classification-item-actions">
                               <button type="button" class="btn-ghost" onClick={() => props.controller.beginEditRule(rule)}>
                                 Edit
@@ -269,31 +331,6 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
                               </button>
                             </div>
                           </div>
-
-                          <div class="classification-patterns">
-                            <span class="classification-field">
-                              <strong>Process</strong>
-                              <span>{rule.processNamePattern || "Any process"}</span>
-                            </span>
-                            <span class="classification-field">
-                              <strong>Window</strong>
-                              <span>{rule.windowTitlePattern || "Any title"}</span>
-                            </span>
-                            <span class="classification-field">
-                              <strong>Scope</strong>
-                              <span>{rule.scope}</span>
-                            </span>
-                            <span class="classification-field">
-                              <strong>Source</strong>
-                              <span>{rule.source}</span>
-                            </span>
-                          </div>
-
-                          <div class="classification-metrics">
-                            <span>Category: {rule.category}</span>
-                            <span>Hits: {rule.hitCount}</span>
-                            <span>Last used: {formatRuleDate(rule.lastUsedAt)}</span>
-                          </div>
                         </div>
                         {isDropAfter() ? <div class="classification-drop-indicator classification-drop-indicator-after">Insert after</div> : null}
                       </li>
@@ -308,7 +345,7 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
         <DashboardSurface
           eyebrow="Editor"
           title={draft().id ? "Edit rule" : "Create rule"}
-          description="Patterns are substring matches. Scope controls whether process, title, or both must match."
+          description="Keep the core rule fields visible. Matching conditions stay tucked into a collapsed section."
           class="surface-summary"
           actions={
             <button type="button" class="btn-secondary" onClick={props.controller.clearDraft}>
@@ -354,31 +391,37 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
                   <option value="both">both</option>
                 </select>
               </div>
-              <div class="form-group field-span">
-                <label for="classificationProcessPattern">Process pattern</label>
-                <input
-                  id="classificationProcessPattern"
-                  type="text"
-                  value={draft().processNamePattern}
-                  placeholder="code"
-                  onInput={(event) => props.controller.updateDraft("processNamePattern", event.currentTarget.value)}
-                />
-              </div>
+              {/* The matching section stays collapsed so the editor reads like a short form first. */}
               <details class="classification-advanced field-span">
-                <summary>Advanced title matching</summary>
+                <summary>
+                  <span>Matching conditions</span>
+                  <span class="classification-condition-summary">{formatConditionSummary(draft())}</span>
+                </summary>
                 <div class="classification-advanced-body">
-                  <div class="form-group field-span">
-                    <label for="classificationWindowPattern">Window title pattern</label>
-                    <input
-                      id="classificationWindowPattern"
-                      type="text"
-                      value={draft().windowTitlePattern}
-                      placeholder="Leave blank to ignore"
-                      onInput={(event) => props.controller.updateDraft("windowTitlePattern", event.currentTarget.value)}
-                    />
+                  <div class="field-grid field-grid-two">
+                    <div class="form-group">
+                      <label for="classificationProcessPattern">Process pattern</label>
+                      <input
+                        id="classificationProcessPattern"
+                        type="text"
+                        value={draft().processNamePattern}
+                        placeholder="code"
+                        onInput={(event) => props.controller.updateDraft("processNamePattern", event.currentTarget.value)}
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label for="classificationWindowPattern">Window title pattern</label>
+                      <input
+                        id="classificationWindowPattern"
+                        type="text"
+                        value={draft().windowTitlePattern}
+                        placeholder="Leave blank to ignore"
+                        onInput={(event) => props.controller.updateDraft("windowTitlePattern", event.currentTarget.value)}
+                      />
+                    </div>
                   </div>
                   <Show when={titleScopeSuggestion()}>
-                    <div class="classification-scope-suggestion" role="status" aria-live="polite">
+                    <div class="classification-scope-suggestion field-span" role="status" aria-live="polite">
                       <span>Title pattern entered. Use `both` when you want process + title together.</span>
                       <button
                         type="button"
@@ -389,7 +432,7 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
                       </button>
                     </div>
                   </Show>
-                  <p class="settings-hint classification-hint">
+                  <p class="settings-hint classification-hint field-span">
                     Title matching uses substring logic. Leave this blank unless the title is stable enough to help classification.
                   </p>
                 </div>
