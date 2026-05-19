@@ -304,18 +304,25 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                         }
                         previous_sample = None;
                     } else {
-                        let api_key = state.active_api_key();
-                        let classification = classify_snapshot(
-                            &state,
-                            &app,
-                            &api_key,
-                            &snapshot.process_name,
-                            &snapshot.window_title,
-                        );
                         let same_window = previous_sample
                             .as_ref()
                             .map(|previous| previous.matches_snapshot(&snapshot))
                             .unwrap_or(false);
+                        let classification = if same_window {
+                            previous_sample
+                                .as_ref()
+                                .map(|previous| previous.classification.clone())
+                                .unwrap_or_else(fallback_unknown_classification)
+                        } else {
+                            let api_key = state.active_api_key();
+                            classify_snapshot(
+                                &state,
+                                &app,
+                                &api_key,
+                                &snapshot.process_name,
+                                &snapshot.window_title,
+                            )
+                        };
 
                         if let Some(previous) = previous_sample.as_ref() {
                             let finalize_at = if day_changed { day_start } else { now };
@@ -357,6 +364,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                                 id,
                                 timestamp,
                                 snapshot: snapshot.clone(),
+                                classification: classification.clone(),
                             });
 
                             if day_changed && same_window {
@@ -432,19 +440,18 @@ pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> AppResult<TodaySumm
             error,
         )
     })?;
-    let (tracked_ms, productive_ms, distraction_ms, neutral_ms) =
-        datastores.get_stats_for_day(&today).map_err(|error| {
-            AppError::database_for(
-                "get_today_summary",
-                format!("read today's summary stats: {error}"),
-            )
-        })?;
+    let day_snapshot = datastores.get_day_activity_snapshot(&today).map_err(|error| {
+        AppError::database_for(
+            "get_today_summary",
+            format!("read today's activity snapshot: {error}"),
+        )
+    })?;
 
     Ok(TodaySummary {
-        tracked_ms,
-        productive_ms,
-        distraction_ms,
-        neutral_ms,
+        tracked_ms: day_snapshot.summary.total_tracked_ms,
+        productive_ms: day_snapshot.summary.productive_ms,
+        distraction_ms: day_snapshot.summary.distraction_ms,
+        neutral_ms: day_snapshot.summary.neutral_ms,
     })
 }
 
@@ -456,10 +463,12 @@ pub fn get_top_apps(state: State<'_, Arc<AppState>>) -> AppResult<Vec<TopApp>> {
         .lock()
         .map_err(|error| lock_error("get_top_apps", "lock datastores for top apps", error))?;
     let top_apps = datastores
-        .get_top_apps_for_day(&today, 10)
+        .get_day_activity_snapshot(&today)
         .map_err(|error| {
-            AppError::database_for("get_top_apps", format!("read today's top apps: {error}"))
-        })?;
+            AppError::database_for("get_top_apps", format!("read today's activity snapshot: {error}"))
+        })?
+        .summary
+        .top_apps;
     Ok(top_apps)
 }
 
@@ -557,7 +566,7 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
         }
     };
 
-    let (today_summary, top_apps, statistics_snapshot, daily_summary) = {
+    let (today_snapshot, statistics_snapshot, daily_summary) = {
         let datastores = state.datastores.lock().map_err(|error| {
             lock_error(
                 "get_dashboard_bootstrap",
@@ -566,17 +575,10 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
             )
         })?;
 
-        let (tracked_ms, productive_ms, distraction_ms, neutral_ms) =
-            datastores.get_stats_for_day(&today).map_err(|error| {
-                AppError::database_for(
-                    "get_dashboard_bootstrap",
-                    format!("read today's summary stats: {error}"),
-                )
-            })?;
-        let top_apps = datastores.get_top_apps_for_day(&today, 10).map_err(|error| {
+        let today_snapshot = datastores.get_day_activity_snapshot(&today).map_err(|error| {
             AppError::database_for(
                 "get_dashboard_bootstrap",
-                format!("read today's top apps: {error}"),
+                format!("read today's activity snapshot: {error}"),
             )
         })?;
         let statistics_snapshot = datastores
@@ -594,17 +596,7 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
             )
         })?;
 
-        (
-            TodaySummary {
-                tracked_ms,
-                productive_ms,
-                distraction_ms,
-                neutral_ms,
-            },
-            top_apps,
-            statistics_snapshot,
-            daily_summary,
-        )
+        (today_snapshot, statistics_snapshot, daily_summary)
     };
 
     let (memory_status, memory_records) = {
@@ -619,8 +611,13 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
     };
 
     Ok(DashboardBootstrapSnapshot {
-        today_summary,
-        top_apps,
+        today_summary: TodaySummary {
+            tracked_ms: today_snapshot.summary.total_tracked_ms,
+            productive_ms: today_snapshot.summary.productive_ms,
+            distraction_ms: today_snapshot.summary.distraction_ms,
+            neutral_ms: today_snapshot.summary.neutral_ms,
+        },
+        top_apps: today_snapshot.summary.top_apps,
         statistics_snapshot,
         settings,
         tracking_status,
@@ -1240,6 +1237,7 @@ struct PreviousSample {
     id: i64,
     timestamp: i64,
     snapshot: WindowSnapshot,
+    classification: ClassificationResult,
 }
 
 impl PreviousSample {

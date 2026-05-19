@@ -25,20 +25,22 @@ pub struct SummaryGenerationReport {
 
 pub fn generate_daily_summary(
     command: &'static str,
-    datastores: &mut Datastores,
+    datastores: &Datastores,
     api_key: &str,
     memory_store: Option<&MemoryStore>,
     date: &str,
     summary_language: &str,
     summary_tone: &str,
 ) -> AppResult<SummaryGenerationReport> {
-    let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) =
-        datastores.get_stats_for_day(date).map_err(|error| {
-            AppError::database_for(command, format!("read summary stats for {date}: {error}"))
-        })?;
-    let top_apps = datastores.get_top_apps_for_day(date, 10).map_err(|error| {
-        AppError::database_for(command, format!("read top apps for {date}: {error}"))
+    let day_snapshot = datastores.get_day_activity_snapshot(date).map_err(|error| {
+        AppError::database_for(command, format!("read day activity snapshot for {date}: {error}"))
     })?;
+    let summary = day_snapshot.summary;
+    let total_tracked_ms = summary.total_tracked_ms;
+    let productive_ms = summary.productive_ms;
+    let distraction_ms = summary.distraction_ms;
+    let neutral_ms = summary.neutral_ms;
+    let top_apps = summary.top_apps.clone();
     let api_key = api_key.trim();
 
     let memory_context = collect_memory_context(

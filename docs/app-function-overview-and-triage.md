@@ -160,6 +160,24 @@ The codebase currently passes:
 | Resolved | Top-app aggregation now rolls category totals up per process and picks the dominant category deterministically. | Top-app labels in Today and Statistics no longer depend on SQLite's non-aggregated grouping behavior. | `src-tauri/src/db.rs` |
 | Resolved | Foreground tracking now keeps windows even when the process path cannot be resolved by falling back to `unknown`. | Protected or non-resolvable windows still contribute time and summary data instead of being dropped. | `src-tauri/src/tracker.rs` |
 
+## Overhead Reduction Triage
+
+This note captures the current hot-path reductions that were implemented to cut runtime overhead. The numbers below are from code-path inspection rather than live profiling.
+
+| Hot path | Before | After | Effect |
+| --- | --- | --- | --- |
+| Background polling | Reloaded app settings from SQLite every loop and re-read the Gemini key from the OS store when tracking was active. | Reads runtime settings and the Gemini key from `AppState` cache. | Removes repeated SQLite and keyring I/O from the steady-state tracker loop. |
+| Dashboard hydration | Issued 8 RPCs on mount for today stats, top apps, range stats, settings, tracking, daily summary, and memory. | Uses a single bootstrap RPC for first paint. | Cuts dashboard startup chatter and shortens the initial lock window. |
+| Memory refresh | Read status and recent records through two separate RPCs. | Uses one snapshot RPC for status + records. | Halves the memory refresh round trips. |
+| Summary/export pipeline | Re-read summary language, tone, markdown settings, and Gemini key during generation/export. | Reuses runtime settings and cached Gemini key. | Lowers avoidable DB/keyring access during summary generation and day rollover. |
+
+Current verification:
+
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+- `pnpm run typecheck`
+- `pnpm test`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
 ## Practical Verdict
 
 The app is structurally coherent and the main dashboard flows are wired correctly. The two highest-risk tracking issues were addressed in the current codebase, and the unresolved-process-path case now degrades gracefully instead of dropping data.

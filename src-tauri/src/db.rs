@@ -9,6 +9,11 @@ use crate::types::{
     TopApp,
 };
 
+pub struct DayActivitySnapshot {
+    pub activity: Vec<ActivitySample>,
+    pub summary: DailySummary,
+}
+
 pub struct CachedClassification {
     pub category: ActivityCategory,
     pub label: String,
@@ -184,80 +189,26 @@ impl Datastores {
         from_ms: i64,
         to_ms: i64,
     ) -> anyhow::Result<Vec<ActivitySample>> {
-        let mut stmt = match self.activity.prepare(
-            "SELECT id, timestamp, process_name, window_title, category, label, duration_ms FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 ORDER BY timestamp",
-        ) {
-            Ok(stmt) => stmt,
-            Err(error) => return Err(error).with_context(|| format!("prepare activity range query {from_ms}..{to_ms}")),
-        };
-
-        let rows = match stmt.query_map(params![from_ms, to_ms], |row| {
-            Ok(ActivitySample {
-                id: row.get(0)?,
-                timestamp: row.get(1)?,
-                process_name: row.get(2)?,
-                window_title: row.get(3)?,
-                category: match row.get::<_, String>(4)?.as_str() {
-                    "productive" => ActivityCategory::Productive,
-                    "distraction" => ActivityCategory::Distraction,
-                    "neutral" => ActivityCategory::Neutral,
-                    _ => ActivityCategory::Unknown,
-                },
-                label: row.get(5)?,
-                duration_ms: row.get(6)?,
-            })
-        }) {
-            Ok(rows) => rows,
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("query activity range {from_ms}..{to_ms}"))
-            }
-        };
-
-        rows.collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("collect activity range {from_ms}..{to_ms}"))
+        self.query_activity_range(from_ms, to_ms)
     }
 
+    #[allow(dead_code)]
     pub fn get_stats_for_day(&self, date_str: &str) -> anyhow::Result<(i64, i64, i64, i64)> {
-        let (start, end) = day_bounds(date_str);
-        let mut total = 0;
-        let mut productive = 0;
-        let mut distraction = 0;
-        let mut neutral = 0;
-
-        let mut stmt = match self.activity.prepare(
-            "SELECT category, COALESCE(SUM(duration_ms), 0) AS total FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 GROUP BY category",
-        ) {
-            Ok(stmt) => stmt,
-            Err(error) => return Err(error).with_context(|| format!("prepare stats query for {date_str}")),
-        };
-
-        let rows = match stmt.query_map(params![start, end], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        }) {
-            Ok(rows) => rows,
-            Err(error) => return Err(error).with_context(|| format!("query stats for {date_str}")),
-        };
-
-        for row in rows
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("collect stats for {date_str}"))?
-        {
-            total += row.1;
-            match row.0.as_str() {
-                "productive" => productive = row.1,
-                "distraction" => distraction = row.1,
-                "neutral" => neutral = row.1,
-                _ => {}
-            }
-        }
-
-        Ok((total, productive, distraction, neutral))
+        let snapshot = self.get_day_activity_snapshot(date_str)?;
+        Ok((
+            snapshot.summary.total_tracked_ms,
+            snapshot.summary.productive_ms,
+            snapshot.summary.distraction_ms,
+            snapshot.summary.neutral_ms,
+        ))
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn get_top_apps_for_day(&self, date_str: &str, limit: i64) -> anyhow::Result<Vec<TopApp>> {
-        let (start, end) = day_bounds(date_str);
-        self.get_top_apps_for_range(start, end, limit)
+        let snapshot = self.get_day_activity_snapshot(date_str)?;
+        let mut top_apps = snapshot.summary.top_apps;
+        top_apps.truncate(limit.max(0) as usize);
+        Ok(top_apps)
     }
 
     pub fn get_statistics_snapshot(
@@ -273,115 +224,23 @@ impl Datastores {
         let range_end_exclusive = end_date + Duration::days(1);
         let (start_ms, _) = day_bounds(&start_date.format("%Y-%m-%d").to_string());
         let (end_ms, _) = day_bounds(&range_end_exclusive.format("%Y-%m-%d").to_string());
+        let activity = self
+            .get_activity_range(start_ms, end_ms)
+            .with_context(|| format!("collect statistics activity for {end_date_str}"))?;
+        Ok(aggregate_statistics_snapshot(
+            end_date,
+            clamped_range_days,
+            top_limit,
+            &activity,
+        ))
+    }
 
-        let mut breakdown = std::collections::BTreeMap::<String, StatisticsDaySummary>::new();
-        for offset in 0..clamped_range_days {
-            let day = start_date + Duration::days(offset);
-            let date = day.format("%Y-%m-%d").to_string();
-            breakdown.insert(
-                date.clone(),
-                StatisticsDaySummary {
-                    date,
-                    tracked_ms: 0,
-                    productive_ms: 0,
-                    distraction_ms: 0,
-                    neutral_ms: 0,
-                },
-            );
-        }
-
-        let mut totals = StatisticsDaySummary {
-            date: start_date.format("%Y-%m-%d").to_string(),
-            tracked_ms: 0,
-            productive_ms: 0,
-            distraction_ms: 0,
-            neutral_ms: 0,
-        };
-
-        let mut daily_stmt = match self.activity.prepare(
-            r#"
-            SELECT
-              date(timestamp / 1000, 'unixepoch') AS day,
-              category,
-              COALESCE(SUM(duration_ms), 0) AS total
-            FROM activity_log
-            WHERE timestamp >= ?1 AND timestamp < ?2
-            GROUP BY date(timestamp / 1000, 'unixepoch'), category
-            ORDER BY day ASC
-            "#,
-        ) {
-            Ok(stmt) => stmt,
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("prepare statistics query for {end_date_str}"))
-            }
-        };
-
-        let rows = match daily_stmt.query_map(params![start_ms, end_ms], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        }) {
-            Ok(rows) => rows,
-            Err(error) => {
-                return Err(error).with_context(|| format!("query statistics for {end_date_str}"))
-            }
-        };
-
-        for row in rows
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("collect statistics for {end_date_str}"))?
-        {
-            let entry = breakdown
-                .entry(row.0.clone())
-                .or_insert_with(|| StatisticsDaySummary {
-                    date: row.0.clone(),
-                    tracked_ms: 0,
-                    productive_ms: 0,
-                    distraction_ms: 0,
-                    neutral_ms: 0,
-                });
-            entry.tracked_ms += row.2;
-            totals.tracked_ms += row.2;
-            match row.1.as_str() {
-                "productive" => {
-                    entry.productive_ms += row.2;
-                    totals.productive_ms += row.2;
-                }
-                "distraction" => {
-                    entry.distraction_ms += row.2;
-                    totals.distraction_ms += row.2;
-                }
-                "neutral" => {
-                    entry.neutral_ms += row.2;
-                    totals.neutral_ms += row.2;
-                }
-                _ => {}
-            }
-        }
-
-        let active_days = breakdown.values().filter(|day| day.tracked_ms > 0).count() as i64;
-
-        let top_apps = self
-            .get_top_apps_for_range(start_ms, end_ms, top_limit)
-            .with_context(|| format!("collect top apps statistics for {end_date_str}"))?;
-
-        Ok(StatisticsSnapshot {
-            range_days: clamped_range_days,
-            start_date: start_date.format("%Y-%m-%d").to_string(),
-            end_date: (end_date - Duration::days(1))
-                .format("%Y-%m-%d")
-                .to_string(),
-            tracked_ms: totals.tracked_ms,
-            productive_ms: totals.productive_ms,
-            distraction_ms: totals.distraction_ms,
-            neutral_ms: totals.neutral_ms,
-            active_days,
-            daily_breakdown: breakdown.into_values().collect(),
-            top_apps,
-        })
+    pub fn get_day_activity_snapshot(&self, date_str: &str) -> anyhow::Result<DayActivitySnapshot> {
+        let (start, end) = day_bounds(date_str);
+        let activity = self
+            .get_activity_range(start, end)
+            .with_context(|| format!("collect day activity for {date_str}"))?;
+        Ok(aggregate_day_activity_snapshot(date_str, activity))
     }
 
     pub fn get_setting(&self, key: &str) -> anyhow::Result<Option<String>> {
@@ -461,77 +320,216 @@ impl Datastores {
         day_bounds(date_str)
     }
 
-    fn get_top_apps_for_range(
+    fn query_activity_range(
         &self,
-        start_ms: i64,
-        end_ms: i64,
-        limit: i64,
-    ) -> anyhow::Result<Vec<TopApp>> {
+        from_ms: i64,
+        to_ms: i64,
+    ) -> anyhow::Result<Vec<ActivitySample>> {
         let mut stmt = match self.activity.prepare(
-            r#"
-            SELECT process_name, category, COALESCE(SUM(duration_ms), 0) AS total
-            FROM activity_log
-            WHERE timestamp >= ?1 AND timestamp < ?2
-            GROUP BY process_name, category
-            ORDER BY process_name ASC, total DESC
-            "#,
+            "SELECT id, timestamp, process_name, window_title, category, label, duration_ms FROM activity_log WHERE timestamp >= ?1 AND timestamp < ?2 ORDER BY timestamp",
         ) {
             Ok(stmt) => stmt,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("prepare top apps query for {start_ms}..{end_ms}")
-                })
-            }
+            Err(error) => return Err(error).with_context(|| format!("prepare activity range query {from_ms}..{to_ms}")),
         };
 
-        let rows = match stmt.query_map(params![start_ms, end_ms], |row| {
-            let category = match row.get::<_, String>(1)?.as_str() {
-                "productive" => ActivityCategory::Productive,
-                "distraction" => ActivityCategory::Distraction,
-                "neutral" => ActivityCategory::Neutral,
-                _ => ActivityCategory::Unknown,
-            };
-            Ok((
-                row.get::<_, String>(0)?,
-                category,
-                row.get::<_, i64>(2)?,
-            ))
+        let rows = match stmt.query_map(params![from_ms, to_ms], |row| {
+            Ok(ActivitySample {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                process_name: row.get(2)?,
+                window_title: row.get(3)?,
+                category: match row.get::<_, String>(4)?.as_str() {
+                    "productive" => ActivityCategory::Productive,
+                    "distraction" => ActivityCategory::Distraction,
+                    "neutral" => ActivityCategory::Neutral,
+                    _ => ActivityCategory::Unknown,
+                },
+                label: row.get(5)?,
+                duration_ms: row.get(6)?,
+            })
         }) {
             Ok(rows) => rows,
             Err(error) => {
-                return Err(error).with_context(|| format!("query top apps for {start_ms}..{end_ms}"))
+                return Err(error)
+                    .with_context(|| format!("query activity range {from_ms}..{to_ms}"))
             }
         };
 
-        let mut aggregates: HashMap<String, TopAppAggregate> = HashMap::new();
-        for row in rows
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("collect top apps for {start_ms}..{end_ms}"))?
-        {
-            aggregates
-                .entry(row.0)
-                .or_default()
-                .absorb(row.1, row.2);
+        rows.collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("collect activity range {from_ms}..{to_ms}"))
+    }
+}
+
+fn aggregate_day_activity_snapshot(
+    date_str: &str,
+    activity: Vec<ActivitySample>,
+) -> DayActivitySnapshot {
+    let top_apps = aggregate_top_apps(&activity, 10);
+    let (tracked_ms, productive_ms, distraction_ms, neutral_ms) = aggregate_totals(&activity);
+
+    DayActivitySnapshot {
+        activity,
+        summary: DailySummary {
+            date: date_str.to_string(),
+            total_tracked_ms: tracked_ms,
+            productive_ms,
+            distraction_ms,
+            neutral_ms,
+            top_apps,
+            ai_summary: None,
+        },
+    }
+}
+
+fn aggregate_statistics_snapshot(
+    end_date: NaiveDate,
+    range_days: i64,
+    top_limit: i64,
+    activity: &[ActivitySample],
+) -> StatisticsSnapshot {
+    let start_date = end_date - Duration::days(range_days - 1);
+    let mut breakdown = std::collections::BTreeMap::<String, StatisticsDaySummary>::new();
+    for offset in 0..range_days {
+        let day = start_date + Duration::days(offset);
+        let date = day.format("%Y-%m-%d").to_string();
+        breakdown.insert(
+            date.clone(),
+            StatisticsDaySummary {
+                date,
+                tracked_ms: 0,
+                productive_ms: 0,
+                distraction_ms: 0,
+                neutral_ms: 0,
+            },
+        );
+    }
+
+    let mut totals = StatisticsDaySummary {
+        date: start_date.format("%Y-%m-%d").to_string(),
+        tracked_ms: 0,
+        productive_ms: 0,
+        distraction_ms: 0,
+        neutral_ms: 0,
+    };
+
+    let mut top_app_aggregates: HashMap<String, TopAppAggregate> = HashMap::new();
+
+    for sample in activity {
+        let day = sample_day_string(sample.timestamp);
+        let entry = breakdown.entry(day).or_insert_with(|| StatisticsDaySummary {
+            date: sample_day_string(sample.timestamp),
+            tracked_ms: 0,
+            productive_ms: 0,
+            distraction_ms: 0,
+            neutral_ms: 0,
+        });
+        entry.tracked_ms += sample.duration_ms;
+        totals.tracked_ms += sample.duration_ms;
+
+        match sample.category {
+            ActivityCategory::Productive => {
+                entry.productive_ms += sample.duration_ms;
+                totals.productive_ms += sample.duration_ms;
+            }
+            ActivityCategory::Distraction => {
+                entry.distraction_ms += sample.duration_ms;
+                totals.distraction_ms += sample.duration_ms;
+            }
+            ActivityCategory::Neutral => {
+                entry.neutral_ms += sample.duration_ms;
+                totals.neutral_ms += sample.duration_ms;
+            }
+            ActivityCategory::Unknown => {}
         }
 
-        let mut top_apps: Vec<TopApp> = aggregates
-            .into_iter()
-            .map(|(process_name, aggregate)| TopApp {
-                process_name,
-                duration_ms: aggregate.total_ms,
-                category: aggregate.dominant_category(),
-            })
-            .collect();
-
-        top_apps.sort_by(|a, b| {
-            b.duration_ms
-                .cmp(&a.duration_ms)
-                .then_with(|| a.process_name.cmp(&b.process_name))
-        });
-        top_apps.truncate(limit.max(0) as usize);
-
-        Ok(top_apps)
+        top_app_aggregates
+            .entry(sample.process_name.clone())
+            .or_default()
+            .absorb(sample.category, sample.duration_ms);
     }
+
+    let mut top_apps = top_app_aggregates
+        .into_iter()
+        .map(|(process_name, aggregate)| TopApp {
+            process_name,
+            duration_ms: aggregate.total_ms,
+            category: aggregate.dominant_category(),
+        })
+        .collect::<Vec<_>>();
+    top_apps.sort_by(|a, b| {
+        b.duration_ms
+            .cmp(&a.duration_ms)
+            .then_with(|| a.process_name.cmp(&b.process_name))
+    });
+    top_apps.truncate(top_limit.max(0) as usize);
+
+    let active_days = breakdown.values().filter(|day| day.tracked_ms > 0).count() as i64;
+
+    StatisticsSnapshot {
+        range_days,
+        start_date: start_date.format("%Y-%m-%d").to_string(),
+        end_date: (end_date - Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string(),
+        tracked_ms: totals.tracked_ms,
+        productive_ms: totals.productive_ms,
+        distraction_ms: totals.distraction_ms,
+        neutral_ms: totals.neutral_ms,
+        active_days,
+        daily_breakdown: breakdown.into_values().collect(),
+        top_apps,
+    }
+}
+
+fn aggregate_top_apps(activity: &[ActivitySample], limit: i64) -> Vec<TopApp> {
+    let mut aggregates: HashMap<String, TopAppAggregate> = HashMap::new();
+    for sample in activity {
+        aggregates
+            .entry(sample.process_name.clone())
+            .or_default()
+            .absorb(sample.category, sample.duration_ms);
+    }
+
+    let mut top_apps: Vec<TopApp> = aggregates
+        .into_iter()
+        .map(|(process_name, aggregate)| TopApp {
+            process_name,
+            duration_ms: aggregate.total_ms,
+            category: aggregate.dominant_category(),
+        })
+        .collect();
+    top_apps.sort_by(|a, b| {
+        b.duration_ms
+            .cmp(&a.duration_ms)
+            .then_with(|| a.process_name.cmp(&b.process_name))
+    });
+    top_apps.truncate(limit.max(0) as usize);
+    top_apps
+}
+
+fn aggregate_totals(activity: &[ActivitySample]) -> (i64, i64, i64, i64) {
+    let mut total = 0;
+    let mut productive = 0;
+    let mut distraction = 0;
+    let mut neutral = 0;
+
+    for sample in activity {
+        total += sample.duration_ms;
+        match sample.category {
+            ActivityCategory::Productive => productive += sample.duration_ms,
+            ActivityCategory::Distraction => distraction += sample.duration_ms,
+            ActivityCategory::Neutral => neutral += sample.duration_ms,
+            ActivityCategory::Unknown => {}
+        }
+    }
+
+    (total, productive, distraction, neutral)
+}
+
+fn sample_day_string(timestamp: i64) -> String {
+    chrono::DateTime::<Utc>::from_timestamp_millis(timestamp)
+        .map(|dt| dt.date_naive().format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| Utc::now().date_naive().format("%Y-%m-%d").to_string())
 }
 
 fn day_bounds(date_str: &str) -> (i64, i64) {
@@ -657,6 +655,9 @@ mod tests {
         let top_apps = datastores
             .get_top_apps_for_day("2026-05-19", 10)
             .expect("read top apps");
+        let day_snapshot = datastores
+            .get_day_activity_snapshot("2026-05-19")
+            .expect("read day snapshot");
 
         assert_eq!(top_apps.len(), 2);
         assert_eq!(top_apps[0].process_name, "editor.exe");
@@ -665,6 +666,11 @@ mod tests {
         assert_eq!(top_apps[1].process_name, "browser.exe");
         assert_eq!(top_apps[1].category, ActivityCategory::Distraction);
         assert_eq!(top_apps[1].duration_ms, 4_000);
+
+        assert_eq!(day_snapshot.summary.total_tracked_ms, 9_000);
+        assert_eq!(day_snapshot.summary.productive_ms, 6_000);
+        assert_eq!(day_snapshot.summary.distraction_ms, 3_000);
+        assert_eq!(day_snapshot.summary.top_apps[0].process_name, "editor.exe");
 
         let snapshot = datastores
             .get_statistics_snapshot("2026-05-19", 7, 10)

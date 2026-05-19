@@ -33,24 +33,12 @@ pub fn export_day(
     std::fs::create_dir_all(&output_directory)
         .with_context(|| format!("create {:?}", output_directory))?;
 
-    let (start, end) = Datastores::get_day_bounds(date);
-    let activity = datastores.get_activity_range(start, end)?;
-    let summary = match datastores.get_daily_summary(date)? {
-        Some(summary) => summary,
-        None => {
-            let (total, productive, distraction, neutral) = datastores.get_stats_for_day(date)?;
-            let top_apps = datastores.get_top_apps_for_day(date, 10)?;
-            crate::types::DailySummary {
-                date: date.to_string(),
-                total_tracked_ms: total,
-                productive_ms: productive,
-                distraction_ms: distraction,
-                neutral_ms: neutral,
-                top_apps,
-                ai_summary: None,
-            }
-        }
-    };
+    let day_snapshot = datastores.get_day_activity_snapshot(date)?;
+    let mut summary = day_snapshot.summary;
+    let activity = day_snapshot.activity;
+    if let Some(stored_summary) = datastores.get_daily_summary(date)? {
+        summary.ai_summary = stored_summary.ai_summary;
+    }
 
     let categories: Vec<String> = summary
         .top_apps
