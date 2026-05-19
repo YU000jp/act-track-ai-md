@@ -119,6 +119,28 @@ function createDashboardWatcher() {
   };
 }
 
+function isPortInUseError(error) {
+  return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
+}
+
+function listen(server, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
+}
+
 async function main() {
   await buildDashboard(developmentOutputRoot, { sourcemap: "inline" });
 
@@ -146,11 +168,22 @@ async function main() {
     await serveDashboardAsset(response, outputPath);
   });
 
-  const closeWatcher = createDashboardWatcher();
+  try {
+    await listen(server, dashboardDevPort, dashboardDevHost);
+  } catch (error) {
+    if (isPortInUseError(error)) {
+      console.error(
+        `[dev-frontend] port ${dashboardDevPort} is already in use. Run \`pnpm run dev:frontend:stop\` and try again.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
 
-  server.listen(dashboardDevPort, dashboardDevHost, () => {
-    console.log(`[dev-frontend] serving ${dashboardDevUrl}`);
-  });
+    throw error;
+  }
+
+  console.log(`[dev-frontend] serving ${dashboardDevUrl}`);
+  const closeWatcher = createDashboardWatcher();
 
   const shutdown = () => {
     closeWatcher();

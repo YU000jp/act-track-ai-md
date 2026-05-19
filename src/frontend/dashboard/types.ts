@@ -1,4 +1,5 @@
 import type { AppErrorPayload } from "../../shared/app-error";
+import type { StatisticsRange, StatisticsSnapshot } from "../../shared/types";
 
 export type TodayStats = {
   trackedMs: number;
@@ -12,6 +13,9 @@ export type TopApp = {
   durationMs: number;
   category: string;
 };
+
+export type RangeStatistics = StatisticsSnapshot;
+export type StatisticsWindow = StatisticsRange;
 
 export type ToastKind = "error" | "info" | "success";
 export type TabKey = "today" | "statistics" | "settings";

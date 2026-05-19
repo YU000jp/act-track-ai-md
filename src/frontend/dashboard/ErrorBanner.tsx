@@ -16,7 +16,14 @@ export function ErrorBanner(props: ErrorBannerProps) {
       data-error-kind={props.errorState?.error.kind}
       data-error-command={props.errorState?.error.command}
     >
-      {props.errorState ? describeAppError(props.errorState.error, props.errorState.context) : ""}
+      {props.errorState ? (
+        <>
+          <strong>Dashboard issue</strong>
+          <span>{describeAppError(props.errorState.error, props.errorState.context)}</span>
+        </>
+      ) : (
+        ""
+      )}
     </div>
   );
 }

@@ -42,7 +42,13 @@ impl MemoryStore {
 
     pub fn initialize(&self) {}
 
-    pub fn save(&self, memory_type: &str, content: &str, metadata: &HashMap<String, String>, pinned: bool) {
+    pub fn save(
+        &self,
+        memory_type: &str,
+        content: &str,
+        metadata: &HashMap<String, String>,
+        pinned: bool,
+    ) {
         let content = content.trim();
         if content.is_empty() {
             return;
@@ -61,7 +67,12 @@ impl MemoryStore {
         let mut entries: Vec<_> = rows
             .into_iter()
             .map(|record| {
-                let content = format!("{} {} {}", record.memory_type, record.content, serde_json::to_string(&record.metadata).unwrap_or_default());
+                let content = format!(
+                    "{} {} {}",
+                    record.memory_type,
+                    record.content,
+                    serde_json::to_string(&record.metadata).unwrap_or_default()
+                );
                 let score = score_content(&content, &tokens);
                 MemorySearchResult { record, score }
             })
@@ -85,7 +96,9 @@ impl MemoryStore {
     }
 
     pub fn forget(&self, id: i64) {
-        let _ = self.db.execute("DELETE FROM memory_entries WHERE id = ?1", params![id]);
+        let _ = self
+            .db
+            .execute("DELETE FROM memory_entries WHERE id = ?1", params![id]);
     }
 
     pub fn pin(&self, id: i64, pinned: bool) {
@@ -126,7 +139,8 @@ impl MemoryStore {
 
         let rows = match stmt.query_map(params![limit as i64], |row| {
             let metadata_json: String = row.get(3)?;
-            let metadata: HashMap<String, String> = serde_json::from_str(&metadata_json).unwrap_or_default();
+            let metadata: HashMap<String, String> =
+                serde_json::from_str(&metadata_json).unwrap_or_default();
             Ok(MemoryRecord {
                 id: row.get(0)?,
                 memory_type: row.get::<_, String>(1)?,

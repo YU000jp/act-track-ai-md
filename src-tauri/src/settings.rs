@@ -56,15 +56,28 @@ pub fn load_app_settings(
 
     Ok(AppSettings {
         gemini_api_key_configured,
-        poll_interval_ms: parse_number_setting(get_setting("pollIntervalMs")?, defaults.poll_interval_ms, 1),
-        idle_timeout_ms: parse_number_setting(get_setting("idleTimeoutMs")?, defaults.idle_timeout_ms, 1),
+        poll_interval_ms: parse_number_setting(
+            get_setting("pollIntervalMs")?,
+            defaults.poll_interval_ms,
+            1,
+        ),
+        idle_timeout_ms: parse_number_setting(
+            get_setting("idleTimeoutMs")?,
+            defaults.idle_timeout_ms,
+            1,
+        ),
         notification_cooldown_ms: parse_number_setting(
             get_setting("notificationCooldownMs")?,
             defaults.notification_cooldown_ms,
             0,
         ),
-        grace_period_ms: parse_number_setting(get_setting("gracePeriodMs")?, defaults.grace_period_ms, 0),
-        markdown_export_path: get_setting("markdownExportPath")?.unwrap_or(defaults.markdown_export_path),
+        grace_period_ms: parse_number_setting(
+            get_setting("gracePeriodMs")?,
+            defaults.grace_period_ms,
+            0,
+        ),
+        markdown_export_path: get_setting("markdownExportPath")?
+            .unwrap_or(defaults.markdown_export_path),
         notifications_enabled: parse_boolean_setting(
             get_setting("notificationsEnabled")?,
             defaults.notifications_enabled,

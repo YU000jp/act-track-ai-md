@@ -36,6 +36,8 @@ export async function installDashboardRPC(): Promise<DashboardClient> {
   rpcClient = {
     getTodaySummary: () => invokeDashboard("get_today_summary"),
     getTopApps: () => invokeDashboard("get_top_apps"),
+    getStatisticsSnapshot: (rangeDays) =>
+      invokeDashboard("get_statistics_snapshot", rangeDays == null ? undefined : { input: { rangeDays } }),
     getTimeline: (date) => invokeDashboard("get_timeline", { date }),
     getDailySummary: (date) => invokeDashboard("get_daily_summary", { date }),
     getSettings: () => invokeDashboard("get_settings"),

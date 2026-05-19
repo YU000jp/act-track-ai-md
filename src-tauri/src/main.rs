@@ -2,9 +2,9 @@
 
 mod app;
 mod app_meta;
-mod error;
 mod classifier;
 mod db;
+mod error;
 mod gemini;
 mod http;
 mod markdown;
@@ -25,15 +25,16 @@ use tauri_plugin_log::{Target, TargetKind};
 
 use app::{
     create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_daily_summary,
-    get_memory_status, get_setting, get_settings, get_today_summary, get_timeline, get_top_apps, get_tracking_status,
-    list_memories, load_tracking_enabled, pin_memory, save_summary_feedback, set_setting, set_settings, toggle_tracking,
-    set_tracking_enabled_on_state,
+    get_memory_status, get_setting, get_settings, get_statistics_snapshot, get_timeline,
+    get_today_summary, get_top_apps, get_tracking_status, list_memories, load_tracking_enabled,
+    pin_memory, save_summary_feedback, set_setting, set_settings, set_tracking_enabled_on_state,
+    toggle_tracking,
 };
 use app_meta::PACKAGE_NAME;
 use db::Datastores;
 use memory::MemoryStore;
-use settings::parse_classification_rules;
 use secrets::{gemini_api_key_configured, migrate_legacy_gemini_api_key, SystemGeminiKeyStore};
+use settings::parse_classification_rules;
 
 fn main() {
     let run_result = tauri::Builder::default()
@@ -50,6 +51,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_today_summary,
             get_top_apps,
+            get_statistics_snapshot,
             get_timeline,
             get_daily_summary,
             get_settings,
@@ -69,7 +71,10 @@ fn main() {
             let project_dirs = directories::ProjectDirs::from("com", "irdan", PACKAGE_NAME)
                 .ok_or_else(|| anyhow::anyhow!("unable to resolve project directories"))?;
             let data_dir = project_dirs.data_local_dir();
-            let datastores = Datastores::open(&data_dir.join("act-track-cache.db"), &data_dir.join("act-track-activity.db"))?;
+            let datastores = Datastores::open(
+                &data_dir.join("act-track-cache.db"),
+                &data_dir.join("act-track-activity.db"),
+            )?;
             let memory_store = MemoryStore::open(&data_dir.join("act-track-memory.db"))?;
             memory_store.initialize();
             let tracking_enabled = load_tracking_enabled(&datastores)?;
@@ -91,7 +96,12 @@ fn main() {
                 classification_rules,
             )?);
             app.manage(state.clone());
-            emit_tracking_status(&app.handle(), state.tracking_enabled.load(std::sync::atomic::Ordering::Relaxed));
+            emit_tracking_status(
+                &app.handle(),
+                state
+                    .tracking_enabled
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            );
 
             if settings.auto_start {
                 let _ = app.handle().autolaunch().enable();
@@ -111,17 +121,24 @@ fn main() {
             let app_handle = app.handle().clone();
             app::start_background_loop(app_handle.clone(), state.clone());
 
-            let dashboard_item = MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
-            let toggle_tracking_item = MenuItem::with_id(app, "toggle-tracking", "Toggle Tracking", true, None::<&str>)?;
+            let dashboard_item =
+                MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
+            let toggle_tracking_item = MenuItem::with_id(
+                app,
+                "toggle-tracking",
+                "Toggle Tracking",
+                true,
+                None::<&str>,
+            )?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let state_for_menu = state.clone();
-            let menu = Menu::with_items(
-                app,
-                &[&dashboard_item, &toggle_tracking_item, &quit_item],
-            )?;
+            let menu =
+                Menu::with_items(app, &[&dashboard_item, &toggle_tracking_item, &quit_item])?;
 
-            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../../src/frontend/assets/icon.png"))
-                .map_err(|error| anyhow::anyhow!(error))?;
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
+                "../../src/frontend/assets/icon.png"
+            ))
+            .map_err(|error| anyhow::anyhow!(error))?;
 
             TrayIconBuilder::new()
                 .icon(tray_icon)
@@ -138,7 +155,8 @@ fn main() {
                         let current = state_for_menu
                             .tracking_enabled
                             .load(std::sync::atomic::Ordering::Relaxed);
-                        let _ = set_tracking_enabled_on_state(app, state_for_menu.as_ref(), !current);
+                        let _ =
+                            set_tracking_enabled_on_state(app, state_for_menu.as_ref(), !current);
                     }
                     "quit" => {
                         app.exit(0);

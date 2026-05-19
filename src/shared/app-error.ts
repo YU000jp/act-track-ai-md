@@ -114,6 +114,7 @@ export function formatAppError(error: AppErrorPayload): string {
 const COMMAND_LABELS: Partial<Record<string, string>> = {
   get_today_summary: "Today summary",
   get_top_apps: "Top apps",
+  get_statistics_snapshot: "Statistics snapshot",
   get_timeline: "Timeline",
   get_daily_summary: "Daily summary",
   get_settings: "Settings",

@@ -4,7 +4,10 @@ use crate::types::WindowSnapshot;
 
 const MAX_TITLE_LENGTH: usize = 200;
 
-pub fn normalize_snapshot(raw: Option<(String, String)>, self_process_name: Option<&str>) -> Option<WindowSnapshot> {
+pub fn normalize_snapshot(
+    raw: Option<(String, String)>,
+    self_process_name: Option<&str>,
+) -> Option<WindowSnapshot> {
     let (process_path, window_title) = raw?;
     let process_path = process_path.trim();
     let window_title = window_title.trim();
@@ -13,17 +16,21 @@ pub fn normalize_snapshot(raw: Option<(String, String)>, self_process_name: Opti
         return None;
     }
 
-    let separator = if process_path.contains('\\') { '\\' } else { '/' };
-    let process_name = process_path
-        .split(separator)
-        .last()
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase();
-
-    if process_name.is_empty() {
-        return None;
-    }
+    let process_name = if process_path.is_empty() {
+        "unknown".to_string()
+    } else {
+        let separator = if process_path.contains('\\') {
+            '\\'
+        } else {
+            '/'
+        };
+        process_path
+            .split(separator)
+            .last()
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+    };
 
     if self_process_name
         .map(|value| value.to_lowercase() == process_name)
@@ -89,14 +96,20 @@ unsafe fn get_foreground_window_windows(self_process_name: Option<&str>) -> Opti
 
     #[link(name = "kernel32")]
     extern "system" {
-        fn OpenProcess(dw_desired_access: u32, b_inherit_handle: i32, dw_process_id: u32) -> HANDLE;
+        fn OpenProcess(dw_desired_access: u32, b_inherit_handle: i32, dw_process_id: u32)
+            -> HANDLE;
         fn CloseHandle(h_object: HANDLE) -> i32;
         fn GetTickCount() -> u32;
     }
 
     #[link(name = "psapi")]
     extern "system" {
-        fn GetModuleFileNameExW(h_process: HANDLE, h_module: HMODULE, lp_filename: *mut u16, n_size: u32) -> u32;
+        fn GetModuleFileNameExW(
+            h_process: HANDLE,
+            h_module: HMODULE,
+            lp_filename: *mut u16,
+            n_size: u32,
+        ) -> u32;
     }
 
     const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
@@ -123,7 +136,12 @@ unsafe fn get_foreground_window_windows(self_process_name: Option<&str>) -> Opti
     }
 
     let mut path_buf = [0u16; 260];
-    let path_len = GetModuleFileNameExW(process_handle, 0, path_buf.as_mut_ptr(), path_buf.len() as u32);
+    let path_len = GetModuleFileNameExW(
+        process_handle,
+        0,
+        path_buf.as_mut_ptr(),
+        path_buf.len() as u32,
+    );
     let _ = CloseHandle(process_handle);
 
     let process_path = String::from_utf16_lossy(&path_buf[..path_len as usize]);
@@ -163,4 +181,23 @@ unsafe fn get_idle_ms_windows() -> u64 {
 
     let tick_count = GetTickCount();
     tick_count.wrapping_sub(info.dw_time) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_snapshot;
+
+    #[test]
+    fn normalize_snapshot_keeps_title_when_process_path_is_missing() {
+        let snapshot = normalize_snapshot(Some((String::new(), "Protected Window".to_string())), None)
+            .expect("snapshot");
+
+        assert_eq!(snapshot.process_name, "unknown");
+        assert_eq!(snapshot.window_title, "Protected Window");
+    }
+
+    #[test]
+    fn normalize_snapshot_still_drops_completely_empty_values() {
+        assert!(normalize_snapshot(Some((String::new(), String::new())), None).is_none());
+    }
 }

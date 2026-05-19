@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { MemoryRecord, MemoryStatus } from "../../shared/types";
 
 type MemorySectionProps = {
@@ -13,11 +13,10 @@ function formatMemoryDate(timestamp: number): string {
 
 export function MemorySection(props: MemorySectionProps) {
   return (
-    <>
-      <h3>Memory</h3>
+    <div class="memory-section">
       <div
         id="memory-status-indicator"
-        class="settings-feedback"
+        class="settings-feedback memory-status"
         data-memory-enabled={props.memoryStatus?.enabled ? "true" : "false"}
       >
         <Show when={props.memoryStatus} fallback="Memory: loading...">
@@ -28,8 +27,9 @@ export function MemorySection(props: MemorySectionProps) {
           }
         </Show>
       </div>
+
       <div id="memory-list-container">
-        <Show when={props.memoryRecords.length > 0} fallback={<div class="empty-state">No memory entries yet</div>}>
+        <Show when={props.memoryRecords.length > 0} fallback={<div class="empty-state">No memory entries yet.</div>}>
           <ul class="memory-list">
             <For each={props.memoryRecords}>
               {(record) => (
@@ -40,10 +40,10 @@ export function MemorySection(props: MemorySectionProps) {
                   </div>
                   <div class="memory-content">{record.content}</div>
                   <div class="memory-actions">
-                    <button type="button" onClick={() => props.onMemoryAction("pin", record)}>
+                    <button type="button" class="btn-ghost" onClick={() => props.onMemoryAction("pin", record)}>
                       {record.pinned ? "Unpin" : "Pin"}
                     </button>
-                    <button type="button" onClick={() => props.onMemoryAction("forget", record)}>
+                    <button type="button" class="btn-ghost" onClick={() => props.onMemoryAction("forget", record)}>
                       Forget
                     </button>
                   </div>
@@ -53,6 +53,6 @@ export function MemorySection(props: MemorySectionProps) {
           </ul>
         </Show>
       </div>
-    </>
+    </div>
   );
 }

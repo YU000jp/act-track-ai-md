@@ -17,12 +17,17 @@ type ControllerProps = {
 
 export type DashboardController = {
   dashboardTitle: string;
+  isHydrated: () => boolean;
   activeTab: () => TabKey;
   setActiveTab: (tab: TabKey) => void;
   errorState: () => DashboardErrorState | null;
   toasts: () => DashboardToast[];
   todayStats: ReturnType<typeof useStatsController>["todayStats"];
   topApps: ReturnType<typeof useStatsController>["topApps"];
+  rangeStats: ReturnType<typeof useStatsController>["rangeStats"];
+  rangeWindow: ReturnType<typeof useStatsController>["rangeWindow"];
+  rangeLoading: ReturnType<typeof useStatsController>["rangeLoading"];
+  setRangeWindow: ReturnType<typeof useStatsController>["setRangeWindow"];
   settings: ReturnType<typeof useSettingsController>["settings"];
   geminiApiKey: ReturnType<typeof useSettingsController>["geminiApiKey"];
   settingsFeedback: ReturnType<typeof useSettingsController>["settingsFeedback"];
@@ -45,6 +50,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   const [activeTab, setActiveTab] = createSignal<TabKey>("today");
   const [errorState, setErrorState] = createSignal<DashboardErrorState | null>(null);
   const [toasts, setToasts] = createSignal<DashboardToast[]>([]);
+  const [isHydrated, setIsHydrated] = createSignal(false);
 
   function pushToast(kind: DashboardToast["kind"], title: string, message: string): void {
     const toast: DashboardToast = {
@@ -78,7 +84,10 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     pushToast,
   });
 
-  const statsController = useStatsController();
+  const statsController = useStatsController({
+    rpc: props.rpc,
+    reportError: reportDashboardError,
+  });
   const memoryController = useMemoryController({
     rpc: props.rpc,
     reportError: reportDashboardError,
@@ -99,9 +108,10 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   async function hydrateDashboard(): Promise<void> {
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const [todaySummary, topAppsData, loadedSettings, tracking, summary, status, memories] = await Promise.all([
+      const [todaySummary, topAppsData, rangeStats, loadedSettings, tracking, summary, status, memories] = await Promise.all([
         props.rpc.getTodaySummary(),
         props.rpc.getTopApps(),
+        props.rpc.getStatisticsSnapshot(7),
         props.rpc.getSettings(),
         props.rpc.getTrackingStatus(),
         props.rpc.getDailySummary(today),
@@ -109,7 +119,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
         props.rpc.listMemories(10),
       ]);
 
-      statsController.hydrateStats(todaySummary, topAppsData);
+      statsController.hydrateStats(todaySummary, topAppsData, rangeStats, 7);
       settingsController.hydrateSettings(loadedSettings);
       summaryController.hydrateSummary(summary?.aiSummary);
       memoryController.hydrateMemory(status, memories);
@@ -117,6 +127,8 @@ export function useDashboardController(props: ControllerProps): DashboardControl
       clearDashboardError();
     } catch (error) {
       reportDashboardError("Failed to load dashboard data", error);
+    } finally {
+      setIsHydrated(true);
     }
   }
 
@@ -126,12 +138,17 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
   return {
     dashboardTitle,
+    isHydrated,
     activeTab,
     setActiveTab,
     errorState,
     toasts,
     todayStats: statsController.todayStats,
     topApps: statsController.topApps,
+    rangeStats: statsController.rangeStats,
+    rangeWindow: statsController.rangeWindow,
+    rangeLoading: statsController.rangeLoading,
+    setRangeWindow: statsController.setRangeWindow,
     settings: settingsController.settings,
     geminiApiKey: settingsController.geminiApiKey,
     settingsFeedback: settingsController.settingsFeedback,

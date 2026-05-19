@@ -8,7 +8,7 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  const app = document.getElementById("app");
+  const app = document.getElementById("dashboard-root");
   if (!app) {
     return;
   }
@@ -16,6 +16,8 @@ async function bootstrap(): Promise<void> {
   document.title = `${APP_META.displayName} Dashboard`;
 
   const rpc = await installDashboardRPC();
+  // Keep the mount node empty so the Solid tree owns the full dashboard shell.
+  app.replaceChildren();
   render(
     () => <App rpc={rpc} subscribeTrackingStatus={subscribeTrackingStatus} />,
     app,

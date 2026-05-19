@@ -5,6 +5,7 @@ import {
   type ActivitySample,
   type ClassificationResult,
   type DailySummary,
+  type StatisticsSnapshot,
   type WindowSnapshot,
 } from "../../src/shared/types";
 
@@ -58,6 +59,32 @@ describe("shared types", () => {
     };
     expect(summary.date).toBe("2026-02-22");
     expect(summary.topApps.length).toBe(1);
+  });
+
+  it("StatisticsSnapshot models range-based aggregates", () => {
+    const snapshot: StatisticsSnapshot = {
+      rangeDays: 7,
+      startDate: "2026-05-13",
+      endDate: "2026-05-19",
+      trackedMs: 144000000,
+      productiveMs: 96000000,
+      distractionMs: 24000000,
+      neutralMs: 24000000,
+      activeDays: 6,
+      dailyBreakdown: [
+        {
+          date: "2026-05-13",
+          trackedMs: 21600000,
+          productiveMs: 14400000,
+          distractionMs: 3600000,
+          neutralMs: 3600000,
+        },
+      ],
+      topApps: [{ processName: "code.exe", durationMs: 72000000, category: "productive" }],
+    };
+
+    expect(snapshot.rangeDays).toBe(7);
+    expect(snapshot.dailyBreakdown[0].date).toBe("2026-05-13");
   });
 
   it("default settings include advanced customization fields", async () => {

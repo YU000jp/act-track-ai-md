@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActivityCategory {
     Productive,
@@ -58,6 +58,31 @@ pub struct DailySummary {
     pub neutral_ms: i64,
     pub top_apps: Vec<TopApp>,
     pub ai_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatisticsDaySummary {
+    pub date: String,
+    pub tracked_ms: i64,
+    pub productive_ms: i64,
+    pub distraction_ms: i64,
+    pub neutral_ms: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatisticsSnapshot {
+    pub range_days: i64,
+    pub start_date: String,
+    pub end_date: String,
+    pub tracked_ms: i64,
+    pub productive_ms: i64,
+    pub distraction_ms: i64,
+    pub neutral_ms: i64,
+    pub active_days: i64,
+    pub daily_breakdown: Vec<StatisticsDaySummary>,
+    pub top_apps: Vec<TopApp>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

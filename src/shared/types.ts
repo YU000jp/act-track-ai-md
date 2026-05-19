@@ -1,6 +1,8 @@
 export const ACTIVITY_CATEGORIES = ["productive", "distraction", "neutral", "unknown"] as const;
+export const STATISTICS_RANGES = [7, 14, 30] as const;
 
 export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
+export type StatisticsRange = (typeof STATISTICS_RANGES)[number];
 
 export type WindowSnapshot = {
   processName: string;
@@ -32,6 +34,27 @@ export type DailySummary = {
   neutralMs: number;
   topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>;
   aiSummary: string | null;
+};
+
+export type StatisticsDaySummary = {
+  date: string;
+  trackedMs: number;
+  productiveMs: number;
+  distractionMs: number;
+  neutralMs: number;
+};
+
+export type StatisticsSnapshot = {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  trackedMs: number;
+  productiveMs: number;
+  distractionMs: number;
+  neutralMs: number;
+  activeDays: number;
+  dailyBreakdown: StatisticsDaySummary[];
+  topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>;
 };
 
 export type MemoryStatus = {
@@ -71,6 +94,7 @@ export type DashboardRPC = {
       neutralMs: number;
     }>;
     getTopApps: () => Promise<Array<{ processName: string; durationMs: number; category: ActivityCategory }>>;
+    getStatisticsSnapshot: (rangeDays?: StatisticsRange) => Promise<StatisticsSnapshot>;
     getTimeline: (date: string) => Promise<ActivitySample[]>;
     getDailySummary: (date: string) => Promise<DailySummary | null>;
     getSettings: () => Promise<AppSettings>;

@@ -1,3 +1,5 @@
+import { DashboardSurface } from "./DashboardSurface";
+
 type SummaryFeedbackSectionProps = {
   summaryFeedback: string;
   summaryFeedbackStatus: string;
@@ -8,24 +10,34 @@ type SummaryFeedbackSectionProps = {
 
 export function SummaryFeedbackSection(props: SummaryFeedbackSectionProps) {
   return (
-    <div id="summary-feedback" class="card">
-      <h3>Summary Feedback</h3>
-      <button type="button" id="generate-summary-now" class="btn-save" onClick={props.onGenerateSummaryNow}>
-        Generate Summary Now
-      </button>
-      <textarea
-        id="summary-feedback-input"
-        rows={4}
-        placeholder="Edit today's AI summary and save to memory"
-        value={props.summaryFeedback}
-        onInput={(event) => props.onSummaryFeedbackChange(event.currentTarget.value)}
-      />
-      <button type="button" id="summary-feedback-save" onClick={props.onSaveSummaryFeedback}>
-        Save Feedback
-      </button>
-      <div id="summary-feedback-status" class="settings-feedback" role="status" aria-live="polite">
-        {props.summaryFeedbackStatus}
+    <DashboardSurface
+      eyebrow="Learning loop"
+      title="Summary feedback"
+      description="Edit today's AI summary before storing it back into memory."
+      class="surface-summary"
+      actions={
+        <div class="surface-action-group">
+          <button type="button" id="generate-summary-now" class="btn-secondary" onClick={props.onGenerateSummaryNow}>
+            Generate summary
+          </button>
+          <button type="button" id="summary-feedback-save" class="btn-primary" onClick={props.onSaveSummaryFeedback}>
+            Save feedback
+          </button>
+        </div>
+      }
+    >
+      <div class="summary-editor">
+        <textarea
+          id="summary-feedback-input"
+          rows={7}
+          placeholder="Refine today's summary and keep the correction in memory."
+          value={props.summaryFeedback}
+          onInput={(event) => props.onSummaryFeedbackChange(event.currentTarget.value)}
+        />
+        <div id="summary-feedback-status" class="settings-feedback summary-feedback-status" role="status" aria-live="polite">
+          {props.summaryFeedbackStatus}
+        </div>
       </div>
-    </div>
+    </DashboardSurface>
   );
 }

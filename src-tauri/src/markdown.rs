@@ -24,11 +24,13 @@ pub fn resolve_markdown_export_directory(configured_path: Option<&str>) -> PathB
 }
 
 pub fn export_day(datastores: &Datastores, date: &str) -> anyhow::Result<(PathBuf, String)> {
-    let output_directory = resolve_markdown_export_directory(datastores.get_setting("markdownExportPath")?.as_deref());
+    let output_directory =
+        resolve_markdown_export_directory(datastores.get_setting("markdownExportPath")?.as_deref());
     std::fs::create_dir_all(&output_directory)
         .with_context(|| format!("create {:?}", output_directory))?;
 
-    let hide_window_titles = datastores.get_setting("markdownPrivacyMode")?.as_deref() == Some("true");
+    let hide_window_titles =
+        datastores.get_setting("markdownPrivacyMode")?.as_deref() == Some("true");
     let (start, end) = Datastores::get_day_bounds(date);
     let activity = datastores.get_activity_range(start, end)?;
     let summary = match datastores.get_daily_summary(date)? {
@@ -84,7 +86,10 @@ pub fn export_day(datastores: &Datastores, date: &str) -> anyhow::Result<(PathBu
         },
         String::new(),
         "## Stats".to_string(),
-        format!("- Total tracked: {}", format_duration(summary.total_tracked_ms)),
+        format!(
+            "- Total tracked: {}",
+            format_duration(summary.total_tracked_ms)
+        ),
         format!("- Productive: {}", format_duration(summary.productive_ms)),
         format!("- Distraction: {}", format_duration(summary.distraction_ms)),
         format!("- Neutral: {}", format_duration(summary.neutral_ms)),
@@ -113,7 +118,12 @@ pub fn export_day(datastores: &Datastores, date: &str) -> anyhow::Result<(PathBu
         ));
     }
 
-    let markdown = lines.join("\n").replace("\n\n\n", "\n\n").trim_end().to_string() + "\n";
+    let markdown = lines
+        .join("\n")
+        .replace("\n\n\n", "\n\n")
+        .trim_end()
+        .to_string()
+        + "\n";
     let output_path = output_directory.join(format!("{date}.md"));
     std::fs::write(&output_path, markdown.as_bytes())?;
 

@@ -12,17 +12,23 @@ pub fn build_classification_prompt(process_name: &str, window_title: &str) -> (S
 }
 
 pub fn parse_classification_response(raw: &str) -> Result<ClassificationResult, String> {
-    let cleaned = raw.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
-    let parsed: serde_json::Value = serde_json::from_str(cleaned)
-        .map_err(|_| format!("Invalid JSON response: {raw}"))?;
+    let cleaned = raw
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    let parsed: serde_json::Value =
+        serde_json::from_str(cleaned).map_err(|_| format!("Invalid JSON response: {raw}"))?;
 
     let obj = parsed
         .as_object()
         .ok_or_else(|| "Response is not an object".to_string())?;
 
-    let category = obj.get("category").and_then(|value| value.as_str()).ok_or_else(|| {
-        "Missing category".to_string()
-    })?;
+    let category = obj
+        .get("category")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "Missing category".to_string())?;
     if !VALID_CATEGORIES.contains(&category) {
         return Err(format!("Invalid category: {category}"));
     }
@@ -34,7 +40,10 @@ pub fn parse_classification_response(raw: &str) -> Result<ClassificationResult, 
         .filter(|label| !label.is_empty())
         .ok_or_else(|| "Missing or empty label".to_string())?;
 
-    let confidence = obj.get("confidence").and_then(|value| value.as_f64()).unwrap_or(1.0);
+    let confidence = obj
+        .get("confidence")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(1.0);
 
     Ok(ClassificationResult {
         category: match category {

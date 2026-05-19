@@ -4,6 +4,8 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "build:frontend": "node scripts/build-frontend.mjs",
+    "dev:frontend:clean": "node scripts/dev-frontend-with-cleanup.mjs",
+    "dev:frontend:stop": "node scripts/cleanup-dev-frontend.mjs",
     "dev:frontend": "node scripts/dev-frontend.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

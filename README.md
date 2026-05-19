@@ -10,6 +10,7 @@ ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-b
 - Native tray icon and notifications with Tauri
 - Markdown export for daily reviews
 - Local memory store for feedback and context
+- Current feature and triage notes: [docs/app-function-overview-and-triage.md](docs/app-function-overview-and-triage.md)
 
 ## Tech Stack
 
@@ -42,6 +43,7 @@ pnpm run tauri:dev
 ```
 
 Tauri runs `scripts/dev-frontend.mjs` automatically before the app starts. The dashboard is served from `http://127.0.0.1:1420` with rebuild-triggered page reloads.
+If a previous dev run was interrupted, `pnpm run dev:frontend:stop` clears stale dashboard and app processes before the next launch.
 
 ## Build
 

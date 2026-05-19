@@ -30,15 +30,18 @@ pub fn generate_daily_summary(
     memory_store: Option<&MemoryStore>,
     date: &str,
 ) -> AppResult<SummaryGenerationReport> {
-    let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) = datastores
-        .get_stats_for_day(date)
-        .map_err(|error| AppError::database_for(command, format!("read summary stats for {date}: {error}")))?;
-    let top_apps = datastores
-        .get_top_apps_for_day(date, 10)
-        .map_err(|error| AppError::database_for(command, format!("read top apps for {date}: {error}")))?;
+    let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) =
+        datastores.get_stats_for_day(date).map_err(|error| {
+            AppError::database_for(command, format!("read summary stats for {date}: {error}"))
+        })?;
+    let top_apps = datastores.get_top_apps_for_day(date, 10).map_err(|error| {
+        AppError::database_for(command, format!("read top apps for {date}: {error}"))
+    })?;
     let summary_language = datastores
         .get_setting("summaryLanguage")
-        .map_err(|error| AppError::settings_for(command, format!("read summary language: {error}")))?
+        .map_err(|error| {
+            AppError::settings_for(command, format!("read summary language: {error}"))
+        })?
         .unwrap_or_else(|| "Japanese".to_string());
     let summary_tone = datastores
         .get_setting("summaryTone")
@@ -46,7 +49,13 @@ pub fn generate_daily_summary(
         .unwrap_or_else(|| "encouraging".to_string());
     let api_key = api_key.trim();
 
-    let memory_context = collect_memory_context(memory_store, date, &top_apps, &summary_language, &summary_tone);
+    let memory_context = collect_memory_context(
+        memory_store,
+        date,
+        &top_apps,
+        &summary_language,
+        &summary_tone,
+    );
     let mut ai_summary = None;
     let mut ai_summary_error = None;
     if !api_key.is_empty() && total_tracked_ms > 0 {
@@ -61,7 +70,14 @@ pub fn generate_daily_summary(
             &summary_tone,
             &memory_context,
         );
-        match call_gemini_for_summary(command, &prompt, api_key, &summary_language, &summary_tone, &memory_context) {
+        match call_gemini_for_summary(
+            command,
+            &prompt,
+            api_key,
+            &summary_language,
+            &summary_tone,
+            &memory_context,
+        ) {
             Ok(summary) => ai_summary = Some(summary),
             Err(error) => ai_summary_error = Some(error),
         }
@@ -77,9 +93,9 @@ pub fn generate_daily_summary(
         ai_summary: ai_summary.clone(),
     };
 
-    datastores
-        .save_daily_summary(&summary)
-        .map_err(|error| AppError::database_for(command, format!("save daily summary for {date}: {error}")))?;
+    datastores.save_daily_summary(&summary).map_err(|error| {
+        AppError::database_for(command, format!("save daily summary for {date}: {error}"))
+    })?;
 
     if let Some(memory_store) = memory_store {
         let top_app_names = summary
@@ -96,7 +112,11 @@ pub fn generate_daily_summary(
             "context",
             &format!(
                 "Daily summary context for {date}: apps={}, trackedMs={}",
-                if top_app_names.is_empty() { "none" } else { &top_app_names },
+                if top_app_names.is_empty() {
+                    "none"
+                } else {
+                    &top_app_names
+                },
                 summary.total_tracked_ms
             ),
             &context_metadata,
@@ -130,9 +150,12 @@ pub fn save_summary_feedback(
         return Ok(());
     }
 
-    let Some(existing) = datastores
-        .get_daily_summary(date)
-        .map_err(|error| AppError::database_for(command, format!("read summary for feedback {date}: {error}")))?
+    let Some(existing) = datastores.get_daily_summary(date).map_err(|error| {
+        AppError::database_for(
+            command,
+            format!("read summary for feedback {date}: {error}"),
+        )
+    })?
     else {
         return Ok(());
     };
@@ -143,7 +166,12 @@ pub fn save_summary_feedback(
             ai_summary: Some(edited.to_string()),
             ..existing
         })
-        .map_err(|error| AppError::database_for(command, format!("save summary feedback for {date}: {error}")))?;
+        .map_err(|error| {
+            AppError::database_for(
+                command,
+                format!("save summary feedback for {date}: {error}"),
+            )
+        })?;
 
     if let Some(memory_store) = memory_store {
         let mut feedback_metadata = HashMap::new();
@@ -175,7 +203,11 @@ fn collect_memory_context(
 
     let query = format!(
         "{date} {summary_language} {summary_tone} {}",
-        top_apps.iter().map(|app| app.process_name.as_str()).collect::<Vec<_>>().join(" ")
+        top_apps
+            .iter()
+            .map(|app| app.process_name.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
     );
 
     let results: Vec<MemorySearchResult> = memory_store.search(&query, 6);
@@ -213,7 +245,14 @@ fn build_summary_prompt(
     } else {
         top_apps
             .iter()
-            .map(|app| format!("- {}: {} ({})", app.process_name, format_ms(app.duration_ms), app.category.as_str()))
+            .map(|app| {
+                format!(
+                    "- {}: {} ({})",
+                    app.process_name,
+                    format_ms(app.duration_ms),
+                    app.category.as_str()
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -283,9 +322,9 @@ fn call_gemini_for_summary(
         ));
     }
 
-    let data: serde_json::Value = response
-        .json()
-        .map_err(|error| AppError::external_api_for(command, format!("decode Gemini response: {error}")))?;
+    let data: serde_json::Value = response.json().map_err(|error| {
+        AppError::external_api_for(command, format!("decode Gemini response: {error}"))
+    })?;
     let text = data
         .get("candidates")
         .and_then(|value| value.as_array())
