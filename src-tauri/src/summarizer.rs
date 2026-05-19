@@ -29,6 +29,8 @@ pub fn generate_daily_summary(
     api_key: &str,
     memory_store: Option<&MemoryStore>,
     date: &str,
+    summary_language: &str,
+    summary_tone: &str,
 ) -> AppResult<SummaryGenerationReport> {
     let (total_tracked_ms, productive_ms, distraction_ms, neutral_ms) =
         datastores.get_stats_for_day(date).map_err(|error| {
@@ -37,16 +39,6 @@ pub fn generate_daily_summary(
     let top_apps = datastores.get_top_apps_for_day(date, 10).map_err(|error| {
         AppError::database_for(command, format!("read top apps for {date}: {error}"))
     })?;
-    let summary_language = datastores
-        .get_setting("summaryLanguage")
-        .map_err(|error| {
-            AppError::settings_for(command, format!("read summary language: {error}"))
-        })?
-        .unwrap_or_else(|| "Japanese".to_string());
-    let summary_tone = datastores
-        .get_setting("summaryTone")
-        .map_err(|error| AppError::settings_for(command, format!("read summary tone: {error}")))?
-        .unwrap_or_else(|| "encouraging".to_string());
     let api_key = api_key.trim();
 
     let memory_context = collect_memory_context(
@@ -106,8 +98,8 @@ pub fn generate_daily_summary(
             .join(", ");
         let mut context_metadata = HashMap::new();
         context_metadata.insert("date".to_string(), date.to_string());
-        context_metadata.insert("summaryLanguage".to_string(), summary_language.clone());
-        context_metadata.insert("summaryTone".to_string(), summary_tone.clone());
+        context_metadata.insert("summaryLanguage".to_string(), summary_language.to_string());
+        context_metadata.insert("summaryTone".to_string(), summary_tone.to_string());
         memory_store.save(
             "context",
             &format!(

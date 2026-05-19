@@ -85,6 +85,27 @@ export type SummaryGenerationReport = {
   aiSummaryError?: import("./app-error").AppErrorPayload;
 };
 
+export type DashboardBootstrapSnapshot = {
+  todaySummary: {
+    trackedMs: number;
+    productiveMs: number;
+    distractionMs: number;
+    neutralMs: number;
+  };
+  topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>;
+  statisticsSnapshot: StatisticsSnapshot;
+  settings: AppSettings;
+  trackingStatus: TrackingStatus;
+  dailySummary: DailySummary | null;
+  memoryStatus: MemoryStatus;
+  memoryRecords: MemoryRecord[];
+};
+
+export type MemorySnapshot = {
+  memoryStatus: MemoryStatus;
+  memoryRecords: MemoryRecord[];
+};
+
 export type DashboardRPC = {
   requests: {
     getTodaySummary: () => Promise<{
@@ -99,6 +120,7 @@ export type DashboardRPC = {
     getDailySummary: (date: string) => Promise<DailySummary | null>;
     getSettings: () => Promise<AppSettings>;
     getTrackingStatus: () => Promise<TrackingStatus>;
+    getDashboardBootstrap: () => Promise<DashboardBootstrapSnapshot>;
     setSetting: (input: { key: string; value: string }) => Promise<void>;
     setSettings: (input: { settings: AppSettingsUpdate; geminiApiKey?: string }) => Promise<void>;
     getSetting: (key: string) => Promise<string | null>;
@@ -106,6 +128,7 @@ export type DashboardRPC = {
     saveSummaryFeedback: (input: { date: string; editedSummary: string; originalSummary?: string | null }) => Promise<void>;
     getMemoryStatus: () => Promise<MemoryStatus>;
     listMemories: (limit?: number) => Promise<MemoryRecord[]>;
+    getMemorySnapshot: (limit?: number) => Promise<MemorySnapshot>;
     forgetMemory: (id: number) => Promise<void>;
     pinMemory: (input: { id: number; pinned: boolean }) => Promise<void>;
     toggleTracking: () => Promise<boolean>;

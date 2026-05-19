@@ -102,6 +102,13 @@ pub struct MemoryStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySnapshot {
+    pub memory_status: MemoryStatus,
+    pub memory_records: Vec<MemoryRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryRecord {
     pub id: i64,
     #[serde(rename = "type")]

@@ -23,14 +23,16 @@ pub fn resolve_markdown_export_directory(configured_path: Option<&str>) -> PathB
     }
 }
 
-pub fn export_day(datastores: &Datastores, date: &str) -> anyhow::Result<(PathBuf, String)> {
-    let output_directory =
-        resolve_markdown_export_directory(datastores.get_setting("markdownExportPath")?.as_deref());
+pub fn export_day(
+    datastores: &Datastores,
+    date: &str,
+    configured_path: &str,
+    hide_window_titles: bool,
+) -> anyhow::Result<(PathBuf, String)> {
+    let output_directory = resolve_markdown_export_directory(Some(configured_path));
     std::fs::create_dir_all(&output_directory)
         .with_context(|| format!("create {:?}", output_directory))?;
 
-    let hide_window_titles =
-        datastores.get_setting("markdownPrivacyMode")?.as_deref() == Some("true");
     let (start, end) = Datastores::get_day_bounds(date);
     let activity = datastores.get_activity_range(start, end)?;
     let summary = match datastores.get_daily_summary(date)? {

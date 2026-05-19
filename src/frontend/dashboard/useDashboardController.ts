@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { normalizeAppError } from "../../shared/app-error";
 import { APP_META } from "../../shared/app-meta";
+import type { DashboardBootstrapSnapshot } from "../../shared/types";
 import { type TrackingStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
 import type { DashboardErrorState, DashboardToast, TabKey } from "./types";
@@ -125,23 +126,18 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
   async function hydrateDashboard(): Promise<void> {
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const [todaySummary, topAppsData, rangeStats, loadedSettings, tracking, summary, status, memories] = await Promise.all([
-        props.rpc.getTodaySummary(),
-        props.rpc.getTopApps(),
-        props.rpc.getStatisticsSnapshot(7),
-        props.rpc.getSettings(),
-        props.rpc.getTrackingStatus(),
-        props.rpc.getDailySummary(today),
-        props.rpc.getMemoryStatus(),
-        props.rpc.listMemories(10),
-      ]);
+      const bootstrap: DashboardBootstrapSnapshot = await props.rpc.getDashboardBootstrap();
 
-      statsController.hydrateStats(todaySummary, topAppsData, rangeStats, 7);
-      settingsController.hydrateSettings(loadedSettings);
-      summaryController.hydrateSummary(summary?.aiSummary);
-      memoryController.hydrateMemory(status, memories);
-      trackingController.hydrateTracking(tracking);
+      statsController.hydrateStats(
+        bootstrap.todaySummary,
+        bootstrap.topApps,
+        bootstrap.statisticsSnapshot,
+        7,
+      );
+      settingsController.hydrateSettings(bootstrap.settings);
+      summaryController.hydrateSummary(bootstrap.dailySummary?.aiSummary);
+      memoryController.hydrateMemory(bootstrap.memoryStatus, bootstrap.memoryRecords);
+      trackingController.hydrateTracking(bootstrap.trackingStatus);
       clearDashboardError();
     } catch (error) {
       reportDashboardError("Failed to load dashboard data", error);

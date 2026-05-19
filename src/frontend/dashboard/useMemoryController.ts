@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import type { MemoryRecord, MemoryStatus } from "../../shared/types";
+import type { MemoryRecord, MemorySnapshot, MemoryStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
 import type { DashboardToast } from "./types";
 
@@ -27,9 +27,9 @@ export function useMemoryController(props: UseMemoryControllerProps): MemoryCont
   }
 
   async function refreshMemorySnapshot(): Promise<void> {
-    const [status, records] = await Promise.all([props.rpc.getMemoryStatus(), props.rpc.listMemories(10)]);
-    setMemoryStatus(status);
-    setMemoryRecords(records);
+    const snapshot: MemorySnapshot = await props.rpc.getMemorySnapshot(10);
+    setMemoryStatus(snapshot.memoryStatus);
+    setMemoryRecords(snapshot.memoryRecords);
   }
 
   async function handleMemoryAction(action: "pin" | "forget", record: MemoryRecord): Promise<void> {

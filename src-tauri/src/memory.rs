@@ -129,6 +129,10 @@ impl MemoryStore {
         }
     }
 
+    pub fn get_snapshot(&self, limit: usize) -> (MemoryStatus, Vec<MemoryRecord>) {
+        (self.get_status(), self.recall(limit))
+    }
+
     fn list_rows(&self, limit: usize) -> Vec<MemoryRecord> {
         let mut stmt = match self.db.prepare(
             "SELECT id, type, content, metadata_json, pinned, created_at FROM memory_entries ORDER BY pinned DESC, created_at DESC LIMIT ?1",

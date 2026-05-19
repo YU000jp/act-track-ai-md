@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatDuration, getRestartRequiredKeys, parseIntegerInput } from "../../src/frontend/dashboard/helpers";
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
-import { DEFAULT_SETTINGS, type AppSettings, type DailySummary, type MemoryRecord, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, type AppSettings, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 
@@ -45,6 +45,72 @@ function createDashboardRpcStub(): DashboardClient {
     topApps: [{ processName: "code", durationMs: 3_600_000, category: "productive" }],
     aiSummary: "Draft summary",
   };
+  const bootstrap: DashboardBootstrapSnapshot = {
+    todaySummary: {
+      trackedMs: summary.totalTrackedMs,
+      productiveMs: summary.productiveMs,
+      distractionMs: summary.distractionMs,
+      neutralMs: summary.neutralMs,
+    },
+    topApps: summary.topApps,
+    statisticsSnapshot: {
+      rangeDays: 7,
+      startDate: "2026-05-13",
+      endDate: "2026-05-19",
+      trackedMs: summary.totalTrackedMs,
+      productiveMs: summary.productiveMs,
+      distractionMs: summary.distractionMs,
+      neutralMs: summary.neutralMs,
+      activeDays: 1,
+      dailyBreakdown: [
+        {
+          date: "2026-05-19",
+          trackedMs: summary.totalTrackedMs,
+          productiveMs: summary.productiveMs,
+          distractionMs: summary.distractionMs,
+          neutralMs: summary.neutralMs,
+        },
+      ],
+      topApps: summary.topApps,
+    },
+    settings: DEFAULT_SETTINGS,
+    trackingStatus: { running: false, state: "paused" },
+    dailySummary: summary,
+    memoryStatus: {
+      enabled: true,
+      backend: "sqlite",
+      total: 1,
+      pinned: 0,
+    },
+    memoryRecords: [
+      {
+        id: 1,
+        type: "feedback",
+        content: "Remember to keep the dashboard shell empty.",
+        metadata: {},
+        pinned: false,
+        createdAt: Date.now(),
+      },
+    ],
+  };
+  const memorySnapshot: MemorySnapshot = {
+    memoryStatus: {
+      enabled: true,
+      backend: "sqlite",
+      total: 1,
+      pinned: 0,
+    },
+    memoryRecords: [
+      {
+        id: 1,
+        type: "feedback",
+        content: "Remember to keep the dashboard shell empty.",
+        metadata: {},
+        pinned: false,
+        createdAt: Date.now(),
+      },
+    ],
+  };
 
   return {
     getTodaySummary: vi.fn(async () => ({
@@ -78,6 +144,7 @@ function createDashboardRpcStub(): DashboardClient {
     getDailySummary: vi.fn(async () => summary),
     getSettings: vi.fn(async () => DEFAULT_SETTINGS),
     getTrackingStatus: vi.fn(async (): Promise<TrackingStatus> => ({ running: false, state: "paused" })),
+    getDashboardBootstrap: vi.fn(async () => bootstrap),
     setSetting: vi.fn(async () => undefined),
     setSettings: vi.fn(async () => undefined),
     getSetting: vi.fn(async () => null),
@@ -101,6 +168,7 @@ function createDashboardRpcStub(): DashboardClient {
         createdAt: Date.now(),
       },
     ]),
+    getMemorySnapshot: vi.fn(async () => memorySnapshot),
     forgetMemory: vi.fn(async () => undefined),
     pinMemory: vi.fn(async () => undefined),
     toggleTracking: vi.fn(async () => true),

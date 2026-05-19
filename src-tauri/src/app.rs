@@ -15,15 +15,14 @@ use crate::error::{AppError, AppResult};
 use crate::markdown;
 use crate::memory::MemoryStore;
 use crate::secrets::{
-    gemini_api_key_configured, load_gemini_api_key, save_gemini_api_key, GeminiKeyStore,
-    SystemGeminiKeyStore,
+    save_gemini_api_key, GeminiKeyStore, SystemGeminiKeyStore,
 };
 use crate::settings::{parse_classification_rules, AppSettings, ClassificationRule};
 use crate::summarizer;
 use crate::tracker;
 use crate::types::{
     ActivityCategory, ActivitySample, ClassificationResult, DailySummary, MemoryRecord,
-    MemoryStatus, StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
+    MemorySnapshot, MemoryStatus, StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
 };
 
 const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
@@ -36,6 +35,8 @@ pub struct AppState {
     pub memory_store: Arc<Mutex<MemoryStore>>,
     pub tracking_enabled: Arc<AtomicBool>,
     pub classification_rules: Arc<RwLock<Vec<ClassificationRule>>>,
+    pub runtime_settings: Arc<RwLock<AppSettings>>,
+    pub gemini_api_key: Arc<RwLock<Option<String>>>,
     pub gemini_api_key_prompt_lock: Arc<AtomicBool>,
     pub self_process_name: String,
 }
@@ -47,12 +48,16 @@ impl AppState {
         self_process_name: String,
         tracking_enabled: bool,
         classification_rules: Vec<ClassificationRule>,
+        runtime_settings: AppSettings,
+        gemini_api_key: Option<String>,
     ) -> Self {
         Self {
             datastores: Arc::new(Mutex::new(datastores)),
             memory_store: Arc::new(Mutex::new(memory_store)),
             tracking_enabled: Arc::new(AtomicBool::new(tracking_enabled)),
             classification_rules: Arc::new(RwLock::new(classification_rules)),
+            runtime_settings: Arc::new(RwLock::new(runtime_settings)),
+            gemini_api_key: Arc::new(RwLock::new(gemini_api_key)),
             gemini_api_key_prompt_lock: Arc::new(AtomicBool::new(false)),
             self_process_name,
         }
@@ -62,6 +67,44 @@ impl AppState {
         if let Ok(mut rules) = self.classification_rules.write() {
             *rules = parse_classification_rules(Some(raw_rules));
         }
+    }
+
+    pub fn settings_snapshot(&self) -> AppSettings {
+        self.runtime_settings
+            .read()
+            .map(|settings| settings.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn update_settings_snapshot(&self, next_settings: AppSettings) {
+        if let Ok(mut settings) = self.runtime_settings.write() {
+            *settings = next_settings;
+        }
+    }
+
+    pub fn update_setting_snapshot(&self, key: &str, value: &str) {
+        if let Ok(mut settings) = self.runtime_settings.write() {
+            apply_setting_to_snapshot(&mut settings, key, value);
+        }
+    }
+
+    pub fn set_gemini_api_key(&self, value: Option<String>) {
+        let configured = value.is_some();
+
+        if let Ok(mut cached_key) = self.gemini_api_key.write() {
+            *cached_key = value;
+        }
+
+        if let Ok(mut settings) = self.runtime_settings.write() {
+            settings.gemini_api_key_configured = configured;
+        }
+    }
+
+    pub fn active_api_key(&self) -> String {
+        self.gemini_api_key
+            .read()
+            .map(|value| value.clone().unwrap_or_default())
+            .unwrap_or_default()
     }
 
     fn try_lock_gemini_api_key_prompt(&self) -> bool {
@@ -137,11 +180,26 @@ pub struct TrackingStatus {
     pub state: TrackingState,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardBootstrapSnapshot {
+    pub today_summary: TodaySummary,
+    pub top_apps: Vec<TopApp>,
+    pub statistics_snapshot: StatisticsSnapshot,
+    pub settings: AppSettings,
+    pub tracking_status: TrackingStatus,
+    pub daily_summary: Option<DailySummary>,
+    pub memory_status: MemoryStatus,
+    pub memory_records: Vec<MemoryRecord>,
+}
+
 pub fn create_app_state(
     datastores: Datastores,
     memory_store: MemoryStore,
     tracking_enabled: bool,
     classification_rules: Vec<ClassificationRule>,
+    runtime_settings: AppSettings,
+    gemini_api_key: Option<String>,
 ) -> anyhow::Result<AppState> {
     let self_process_name = std::env::current_exe()
         .ok()
@@ -157,6 +215,8 @@ pub fn create_app_state(
         self_process_name,
         tracking_enabled,
         classification_rules,
+        runtime_settings,
+        gemini_api_key,
     ))
 }
 
@@ -221,20 +281,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                 now
             };
 
-            let settings = {
-                match state.datastores.lock() {
-                    Ok(datastores) => load_app_settings(|key| datastores.get_setting(key), false)
-                        .unwrap_or_else(|error| {
-                            log::warn!("failed to load background settings: {error}");
-                            AppSettings::default()
-                        }),
-                    Err(error) => {
-                        log::error!("failed to lock datastores for background settings: {error}");
-                        thread::sleep(Duration::from_millis(1000));
-                        continue;
-                    }
-                }
-            };
+            let settings = state.settings_snapshot();
             let poll_ms = settings.poll_interval_ms.max(1) as u64;
             let tracking_enabled = state.tracking_enabled.load(Ordering::Relaxed);
 
@@ -257,7 +304,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                         }
                         previous_sample = None;
                     } else {
-                        let api_key = active_api_key();
+                        let api_key = state.active_api_key();
                         let classification = classify_snapshot(
                             &state,
                             &app,
@@ -486,21 +533,7 @@ pub fn get_daily_summary(
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, Arc<AppState>>) -> AppResult<AppSettings> {
-    let datastores = state
-        .datastores
-        .lock()
-        .map_err(|error| lock_error("get_settings", "lock datastores for settings", error))?;
-    let configured = gemini_api_key_configured(&SystemGeminiKeyStore).map_err(|error| {
-        AppError::keyring_for(
-            "get_settings",
-            format!("read Gemini API key status: {error}"),
-        )
-    })?;
-    let settings =
-        load_app_settings(|key| datastores.get_setting(key), configured).map_err(|error| {
-            AppError::settings_for("get_settings", format!("load app settings: {error}"))
-        })?;
-    Ok(settings)
+    Ok(state.settings_snapshot())
 }
 
 #[tauri::command]
@@ -509,6 +542,91 @@ pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> AppResult<Trackin
     Ok(TrackingStatus {
         running,
         state: tracking_state_from_running(running),
+    })
+}
+
+#[tauri::command]
+pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<DashboardBootstrapSnapshot> {
+    let today = current_day_string();
+    let settings = state.settings_snapshot();
+    let tracking_status = {
+        let running = state.tracking_enabled.load(Ordering::Relaxed);
+        TrackingStatus {
+            running,
+            state: tracking_state_from_running(running),
+        }
+    };
+
+    let (today_summary, top_apps, statistics_snapshot, daily_summary) = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "get_dashboard_bootstrap",
+                "lock datastores for dashboard bootstrap",
+                error,
+            )
+        })?;
+
+        let (tracked_ms, productive_ms, distraction_ms, neutral_ms) =
+            datastores.get_stats_for_day(&today).map_err(|error| {
+                AppError::database_for(
+                    "get_dashboard_bootstrap",
+                    format!("read today's summary stats: {error}"),
+                )
+            })?;
+        let top_apps = datastores.get_top_apps_for_day(&today, 10).map_err(|error| {
+            AppError::database_for(
+                "get_dashboard_bootstrap",
+                format!("read today's top apps: {error}"),
+            )
+        })?;
+        let statistics_snapshot = datastores
+            .get_statistics_snapshot(&today, 7, 10)
+            .map_err(|error| {
+                AppError::database_for(
+                    "get_dashboard_bootstrap",
+                    format!("read dashboard statistics snapshot: {error}"),
+                )
+            })?;
+        let daily_summary = datastores.get_daily_summary(&today).map_err(|error| {
+            AppError::database_for(
+                "get_dashboard_bootstrap",
+                format!("read daily summary for {today}: {error}"),
+            )
+        })?;
+
+        (
+            TodaySummary {
+                tracked_ms,
+                productive_ms,
+                distraction_ms,
+                neutral_ms,
+            },
+            top_apps,
+            statistics_snapshot,
+            daily_summary,
+        )
+    };
+
+    let (memory_status, memory_records) = {
+        let memory_store = state.memory_store.lock().map_err(|error| {
+            lock_error(
+                "get_dashboard_bootstrap",
+                "lock memory store for dashboard bootstrap",
+                error,
+            )
+        })?;
+        memory_store.get_snapshot(10)
+    };
+
+    Ok(DashboardBootstrapSnapshot {
+        today_summary,
+        top_apps,
+        statistics_snapshot,
+        settings,
+        tracking_status,
+        daily_summary,
+        memory_status,
+        memory_records,
     })
 }
 
@@ -536,8 +654,22 @@ pub fn set_settings(
 ) -> AppResult<()> {
     persist_settings(&state, &input.settings)?;
 
+    let mut updated_settings = state.settings_snapshot();
+    updated_settings.poll_interval_ms = input.settings.poll_interval_ms;
+    updated_settings.idle_timeout_ms = input.settings.idle_timeout_ms;
+    updated_settings.notification_cooldown_ms = input.settings.notification_cooldown_ms;
+    updated_settings.grace_period_ms = input.settings.grace_period_ms;
+    updated_settings.markdown_export_path = input.settings.markdown_export_path.clone();
+    updated_settings.notifications_enabled = input.settings.notifications_enabled;
+    updated_settings.auto_start = input.settings.auto_start;
+    updated_settings.classification_rules_json = input.settings.classification_rules_json.clone();
+    updated_settings.summary_language = input.settings.summary_language.clone();
+    updated_settings.summary_tone = input.settings.summary_tone.clone();
+    updated_settings.markdown_privacy_mode = input.settings.markdown_privacy_mode;
+    updated_settings.start_in_background = input.settings.start_in_background;
+
     state.update_classification_rules(&input.settings.classification_rules_json);
-    apply_autostart(&app, input.settings.auto_start)?;
+    state.update_settings_snapshot(updated_settings);
 
     if let Some(gemini_api_key) = input
         .gemini_api_key
@@ -545,13 +677,18 @@ pub fn set_settings(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        save_gemini_api_key_and_release_prompt_lock(
+        let saved = save_gemini_api_key_and_release_prompt_lock(
             "set_settings",
             state.as_ref(),
             &SystemGeminiKeyStore,
             gemini_api_key,
         )?;
+        if saved {
+            state.set_gemini_api_key(Some(gemini_api_key.to_string()));
+        }
     }
+
+    apply_autostart(&app, input.settings.auto_start)?;
 
     Ok(())
 }
@@ -560,6 +697,10 @@ pub fn set_settings(
 pub fn get_setting(key: String, state: State<'_, Arc<AppState>>) -> AppResult<Option<String>> {
     if key == "geminiApiKey" {
         return Ok(None);
+    }
+
+    if let Some(value) = cached_setting_value(&state, &key) {
+        return Ok(Some(value));
     }
 
     let datastores = state
@@ -577,6 +718,7 @@ pub fn generate_summary_now(
     state: State<'_, Arc<AppState>>,
 ) -> AppResult<summarizer::SummaryGenerationReport> {
     let today = current_day_string();
+    let settings = state.settings_snapshot();
     let mut datastores = state.datastores.lock().map_err(|error| {
         lock_error(
             "generate_summary_now",
@@ -591,18 +733,24 @@ pub fn generate_summary_now(
             error,
         )
     })?;
-    let api_key = active_api_key();
     let report = summarizer::generate_daily_summary(
         "generate_summary_now",
         &mut datastores,
-        &api_key,
+        &state.active_api_key(),
         Some(&memory_store),
         &today,
+        &settings.summary_language,
+        &settings.summary_tone,
     )?;
     if let Some(error) = &report.ai_summary_error {
         log::warn!("daily summary generated without AI output: {error}");
     }
-    if let Err(error) = markdown::export_day(&datastores, &today) {
+    if let Err(error) = markdown::export_day(
+        &datastores,
+        &today,
+        &settings.markdown_export_path,
+        settings.markdown_privacy_mode,
+    ) {
         log::warn!("markdown export failed for {today}: {error}");
     }
     Ok(report)
@@ -648,6 +796,25 @@ pub fn get_memory_status(state: State<'_, Arc<AppState>>) -> AppResult<MemorySta
 }
 
 #[tauri::command]
+pub fn get_memory_snapshot(
+    limit: Option<usize>,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<MemorySnapshot> {
+    let memory_store = state.memory_store.lock().map_err(|error| {
+        lock_error(
+            "get_memory_snapshot",
+            "lock memory store for snapshot",
+            error,
+        )
+    })?;
+    let (memory_status, memory_records) = memory_store.get_snapshot(limit.unwrap_or(10));
+    Ok(MemorySnapshot {
+        memory_status,
+        memory_records,
+    })
+}
+
+#[tauri::command]
 pub fn list_memories(
     limit: Option<usize>,
     state: State<'_, Arc<AppState>>,
@@ -687,6 +854,7 @@ pub fn toggle_tracking(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppRe
 }
 
 fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
+    let settings = state.settings_snapshot();
     let mut datastores = state
         .datastores
         .lock()
@@ -695,28 +863,27 @@ fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
         .memory_store
         .lock()
         .map_err(|error| lock_error("daily_export", "lock memory store for daily export", error))?;
-    let api_key = active_api_key();
     let report = summarizer::generate_daily_summary(
         "daily_export",
         &mut datastores,
-        &api_key,
+        &state.active_api_key(),
         Some(&memory_store),
         date,
+        &settings.summary_language,
+        &settings.summary_tone,
     )?;
     if let Some(error) = &report.ai_summary_error {
         log::warn!("daily export completed without AI output for {date}: {error}");
     }
-    if let Err(error) = markdown::export_day(&datastores, date) {
+    if let Err(error) = markdown::export_day(
+        &datastores,
+        date,
+        &settings.markdown_export_path,
+        settings.markdown_privacy_mode,
+    ) {
         log::warn!("markdown export failed for {date}: {error}");
     }
     Ok(())
-}
-
-fn active_api_key() -> String {
-    load_gemini_api_key(&SystemGeminiKeyStore)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
 }
 
 fn current_day_string() -> String {
@@ -860,12 +1027,15 @@ fn apply_setting_change(
     value: &str,
 ) -> AppResult<()> {
     if key == "geminiApiKey" {
-        save_gemini_api_key_and_release_prompt_lock(
+        let saved = save_gemini_api_key_and_release_prompt_lock(
             "set_setting",
             state.as_ref(),
             &SystemGeminiKeyStore,
             value,
         )?;
+        if saved {
+            state.set_gemini_api_key(Some(value.trim().to_string()));
+        }
         return Ok(());
     }
 
@@ -881,6 +1051,8 @@ fn apply_setting_change(
         })?;
         datastores.set_setting(key, value)?;
     }
+
+    state.update_setting_snapshot(key, value);
 
     if key == "classificationRulesJson" {
         state.update_classification_rules(value);
@@ -978,6 +1150,81 @@ fn parse_bool_setting(value: Option<&str>, fallback: bool) -> bool {
         Some("false") => false,
         Some(_) => fallback,
         None => fallback,
+    }
+}
+
+fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<String> {
+    let settings = state.settings_snapshot();
+    match key {
+        "pollIntervalMs" => Some(settings.poll_interval_ms.to_string()),
+        "idleTimeoutMs" => Some(settings.idle_timeout_ms.to_string()),
+        "notificationCooldownMs" => Some(settings.notification_cooldown_ms.to_string()),
+        "gracePeriodMs" => Some(settings.grace_period_ms.to_string()),
+        "markdownExportPath" => Some(settings.markdown_export_path),
+        "notificationsEnabled" => Some(settings.notifications_enabled.to_string()),
+        "autoStart" => Some(settings.auto_start.to_string()),
+        "classificationRulesJson" => Some(settings.classification_rules_json),
+        "summaryLanguage" => Some(settings.summary_language),
+        "summaryTone" => Some(settings.summary_tone),
+        "markdownPrivacyMode" => Some(settings.markdown_privacy_mode.to_string()),
+        "startInBackground" => Some(settings.start_in_background.to_string()),
+        "trackingEnabled" => Some(
+            state
+                .tracking_enabled
+                .load(Ordering::Relaxed)
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn apply_setting_to_snapshot(settings: &mut AppSettings, key: &str, value: &str) {
+    match key {
+        "pollIntervalMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.poll_interval_ms = parsed.max(1);
+            }
+        }
+        "idleTimeoutMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.idle_timeout_ms = parsed.max(1);
+            }
+        }
+        "notificationCooldownMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.notification_cooldown_ms = parsed.max(0);
+            }
+        }
+        "gracePeriodMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.grace_period_ms = parsed.max(0);
+            }
+        }
+        "markdownExportPath" => {
+            settings.markdown_export_path = value.to_string();
+        }
+        "notificationsEnabled" => {
+            settings.notifications_enabled = value == "true";
+        }
+        "autoStart" => {
+            settings.auto_start = value == "true";
+        }
+        "classificationRulesJson" => {
+            settings.classification_rules_json = value.to_string();
+        }
+        "summaryLanguage" => {
+            settings.summary_language = value.to_string();
+        }
+        "summaryTone" => {
+            settings.summary_tone = value.to_string();
+        }
+        "markdownPrivacyMode" => {
+            settings.markdown_privacy_mode = value == "true";
+        }
+        "startInBackground" => {
+            settings.start_in_background = value == "true";
+        }
+        _ => {}
     }
 }
 
@@ -1148,9 +1395,18 @@ mod tests {
         let activity_path = base_dir.join("activity.db");
         let datastores = Datastores::open(&cache_path, &activity_path).expect("open datastores");
         let memory_store = MemoryStore::open(&base_dir.join("memory.db")).expect("open memory store");
+        let settings = AppSettings::default();
 
         (
-            create_app_state(datastores, memory_store, false, Vec::new()).expect("create app state"),
+            create_app_state(
+                datastores,
+                memory_store,
+                false,
+                Vec::new(),
+                settings,
+                None,
+            )
+            .expect("create app state"),
             base_dir,
         )
     }
@@ -1210,5 +1466,32 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }
+
+    #[test]
+    fn cached_settings_snapshot_updates_without_db_reads() {
+        let (state, temp_dir) = create_test_state();
+
+        state.update_setting_snapshot("pollIntervalMs", "4500");
+        state.update_setting_snapshot("markdownPrivacyMode", "true");
+        state.update_setting_snapshot("summaryLanguage", "English");
+
+        let settings = state.settings_snapshot();
+        assert_eq!(settings.poll_interval_ms, 4_500);
+        assert!(settings.markdown_privacy_mode);
+        assert_eq!(settings.summary_language, "English");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn cached_gemini_key_updates_runtime_state() {
+        let (state, temp_dir) = create_test_state();
+
+        state.set_gemini_api_key(Some("cached-secret".to_string()));
+
+        assert!(state.settings_snapshot().gemini_api_key_configured);
+        assert_eq!(state.active_api_key(), "cached-secret");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }
-pub use crate::settings::load_app_settings;

@@ -24,16 +24,20 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_log::{Target, TargetKind};
 
 use app::{
-    create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_daily_summary,
-    get_memory_status, get_setting, get_settings, get_statistics_snapshot, get_timeline,
-    get_today_summary, get_top_apps, get_tracking_status, list_memories, load_tracking_enabled,
-    pin_memory, save_summary_feedback, set_setting, set_settings, set_tracking_enabled_on_state,
+    create_app_state, emit_tracking_status, forget_memory, generate_summary_now,
+    get_dashboard_bootstrap, get_daily_summary, get_memory_snapshot, get_memory_status,
+    get_setting, get_settings, get_statistics_snapshot, get_timeline, get_today_summary,
+    get_top_apps, get_tracking_status, list_memories, load_tracking_enabled, pin_memory,
+    save_summary_feedback, set_setting, set_settings, set_tracking_enabled_on_state,
     toggle_tracking,
 };
 use app_meta::PACKAGE_NAME;
 use db::Datastores;
 use memory::MemoryStore;
-use secrets::{gemini_api_key_configured, migrate_legacy_gemini_api_key, SystemGeminiKeyStore};
+use secrets::{
+    gemini_api_key_configured, load_gemini_api_key, migrate_legacy_gemini_api_key,
+    SystemGeminiKeyStore,
+};
 use settings::parse_classification_rules;
 
 fn main() {
@@ -56,6 +60,8 @@ fn main() {
             get_daily_summary,
             get_settings,
             get_tracking_status,
+            get_dashboard_bootstrap,
+            get_memory_snapshot,
             set_setting,
             get_setting,
             generate_summary_now,
@@ -83,6 +89,8 @@ fn main() {
                 log::warn!("failed to migrate Gemini API key: {error}");
             }
 
+            let gemini_api_key =
+                load_gemini_api_key(&SystemGeminiKeyStore).ok().flatten();
             let settings = {
                 let configured = gemini_api_key_configured(&SystemGeminiKeyStore).unwrap_or(false);
                 settings::load_app_settings(|key| datastores.get_setting(key), configured)?
@@ -94,6 +102,8 @@ fn main() {
                 memory_store,
                 tracking_enabled,
                 classification_rules,
+                settings.clone(),
+                gemini_api_key,
             )?);
             app.manage(state.clone());
             emit_tracking_status(
