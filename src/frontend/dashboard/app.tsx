@@ -9,6 +9,7 @@ import { StatisticsPanel } from "./StatisticsPanel";
 import { TodayPanel } from "./TodayPanel";
 import { ToastRegion } from "./ToastRegion";
 import { useDashboardController } from "./useDashboardController";
+import { subscribeGeminiApiKeySettings } from "./tauri-bridge";
 
 type AppProps = {
   rpc: DashboardClient;
@@ -48,6 +49,7 @@ export function App(props: AppProps) {
   const controller = useDashboardController({
     rpc: props.rpc,
     subscribeTrackingStatus: props.subscribeTrackingStatus,
+    subscribeGeminiApiKeySettings,
   });
 
   const trackingStatus = controller.trackingStatus;

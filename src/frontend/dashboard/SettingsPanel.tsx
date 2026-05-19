@@ -60,6 +60,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <div class="settings-hint">
                   Status: {props.settings.geminiApiKeyConfigured ? "configured" : "not configured"}. Leave blank to keep the current key.
                 </div>
+                {!props.settings.geminiApiKeyConfigured ? (
+                  <div class="settings-callout" role="status" aria-live="polite">
+                    Gemini API key is not configured yet. Classification will use the fallback path until you save one here.
+                  </div>
+                ) : null}
               </div>
               <div class="form-group">
                 <label for="summaryLanguage">Summary language</label>

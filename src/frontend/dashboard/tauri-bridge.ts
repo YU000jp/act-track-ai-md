@@ -12,6 +12,7 @@ export type DashboardClient = DashboardRPC["requests"];
 
 let consoleAttached = false;
 let rpcClient: DashboardClient | null = null;
+const GEMINI_API_KEY_SETTINGS_EVENT = "gemini-api-key-settings-requested";
 
 async function invokeDashboard<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -63,5 +64,14 @@ export async function subscribeTrackingStatus(
   const eventChannel = await import("@tauri-apps/api/event");
   return eventChannel.listen<TrackingStatusPayload>("tracking-status", (event) => {
     listener(event.payload);
+  });
+}
+
+export async function subscribeGeminiApiKeySettings(
+  listener: () => void,
+): Promise<() => void> {
+  const eventChannel = await import("@tauri-apps/api/event");
+  return eventChannel.listen(GEMINI_API_KEY_SETTINGS_EVENT, () => {
+    listener();
   });
 }

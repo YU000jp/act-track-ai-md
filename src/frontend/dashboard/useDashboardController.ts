@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import { normalizeAppError } from "../../shared/app-error";
 import { APP_META } from "../../shared/app-meta";
 import { type TrackingStatus } from "../../shared/types";
@@ -13,6 +13,7 @@ import { useTrackingController } from "./useTrackingController";
 type ControllerProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
+  subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
 };
 
 export type DashboardController = {
@@ -103,6 +104,23 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
   const trackingController = useTrackingController({
     subscribeTrackingStatus: props.subscribeTrackingStatus,
+  });
+
+  onMount(() => {
+    if (!props.subscribeGeminiApiKeySettings) {
+      return;
+    }
+
+    let disposeGeminiSettingsListener: (() => void) | undefined;
+    void props.subscribeGeminiApiKeySettings(() => {
+      setActiveTab("settings");
+    }).then((dispose) => {
+      disposeGeminiSettingsListener = dispose;
+    });
+
+    onCleanup(() => {
+      disposeGeminiSettingsListener?.();
+    });
   });
 
   async function hydrateDashboard(): Promise<void> {

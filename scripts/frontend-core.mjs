@@ -55,6 +55,7 @@ export async function copyDashboardAssets(outdir) {
     [resolve(dashboardRoot, "index.html"), resolve(outdir, "index.html")],
     [resolve(dashboardRoot, "style.css"), resolve(outdir, "style.css")],
     [resolve(dashboardAssetRoot, "icon.png"), resolve(outdir, "icon.png")],
+    [resolve(projectRoot, "src-tauri", "icons", "icon.ico"), resolve(outdir, "favicon.ico")],
   ];
 
   for (const [source, target] of assets) {

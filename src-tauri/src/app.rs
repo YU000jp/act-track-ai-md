@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_meta::PACKAGE_NAME;
 use crate::db::{ActivityInsert, Datastores};
@@ -15,7 +15,8 @@ use crate::error::{AppError, AppResult};
 use crate::markdown;
 use crate::memory::MemoryStore;
 use crate::secrets::{
-    gemini_api_key_configured, load_gemini_api_key, save_gemini_api_key, SystemGeminiKeyStore,
+    gemini_api_key_configured, load_gemini_api_key, save_gemini_api_key, GeminiKeyStore,
+    SystemGeminiKeyStore,
 };
 use crate::settings::{parse_classification_rules, AppSettings, ClassificationRule};
 use crate::summarizer;
@@ -27,6 +28,7 @@ use crate::types::{
 
 const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
 const TRACKING_STATUS_EVENT: &str = "tracking-status";
+const GEMINI_API_KEY_SETTINGS_EVENT: &str = "gemini-api-key-settings-requested";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -34,6 +36,7 @@ pub struct AppState {
     pub memory_store: Arc<Mutex<MemoryStore>>,
     pub tracking_enabled: Arc<AtomicBool>,
     pub classification_rules: Arc<RwLock<Vec<ClassificationRule>>>,
+    pub gemini_api_key_prompt_lock: Arc<AtomicBool>,
     pub self_process_name: String,
 }
 
@@ -50,6 +53,7 @@ impl AppState {
             memory_store: Arc::new(Mutex::new(memory_store)),
             tracking_enabled: Arc::new(AtomicBool::new(tracking_enabled)),
             classification_rules: Arc::new(RwLock::new(classification_rules)),
+            gemini_api_key_prompt_lock: Arc::new(AtomicBool::new(false)),
             self_process_name,
         }
     }
@@ -58,6 +62,16 @@ impl AppState {
         if let Ok(mut rules) = self.classification_rules.write() {
             *rules = parse_classification_rules(Some(raw_rules));
         }
+    }
+
+    fn try_lock_gemini_api_key_prompt(&self) -> bool {
+        self.gemini_api_key_prompt_lock
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn unlock_gemini_api_key_prompt(&self) {
+        self.gemini_api_key_prompt_lock.store(false, Ordering::Release);
     }
 }
 
@@ -146,6 +160,51 @@ pub fn create_app_state(
     ))
 }
 
+fn focus_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        window.show().ok();
+        window.set_focus().ok();
+    }
+}
+
+fn fallback_unknown_classification() -> ClassificationResult {
+    ClassificationResult {
+        category: ActivityCategory::Unknown,
+        label: "Uncategorized".to_string(),
+        confidence: 0.0,
+        source: "fallback".to_string(),
+    }
+}
+
+fn prompt_for_gemini_api_key_settings(app: &AppHandle, state: &AppState) {
+    if !state.try_lock_gemini_api_key_prompt() {
+        return;
+    }
+
+    focus_main_window(app);
+
+    if let Err(error) = app.emit(GEMINI_API_KEY_SETTINGS_EVENT, ()) {
+        log::warn!("failed to emit Gemini API key settings event: {error}");
+    }
+}
+
+fn save_gemini_api_key_and_release_prompt_lock(
+    command: &'static str,
+    state: &AppState,
+    store: &dyn GeminiKeyStore,
+    value: &str,
+) -> AppResult<bool> {
+    let saved = save_gemini_api_key(store, value).map_err(|error| {
+        AppError::keyring_for(command, format!("save Gemini API key: {error}"))
+    })?;
+
+    if saved {
+        state.unlock_gemini_api_key_prompt();
+    }
+
+    Ok(saved)
+}
+
 pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
     thread::spawn(move || {
         let mut previous_sample: Option<PreviousSample> = None;
@@ -201,6 +260,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                         let api_key = active_api_key();
                         let classification = classify_snapshot(
                             &state,
+                            &app,
                             &api_key,
                             &snapshot.process_name,
                             &snapshot.window_title,
@@ -485,9 +545,12 @@ pub fn set_settings(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        save_gemini_api_key(&SystemGeminiKeyStore, gemini_api_key).map_err(|error| {
-            AppError::keyring_for("set_settings", format!("save Gemini API key: {error}"))
-        })?;
+        save_gemini_api_key_and_release_prompt_lock(
+            "set_settings",
+            state.as_ref(),
+            &SystemGeminiKeyStore,
+            gemini_api_key,
+        )?;
     }
 
     Ok(())
@@ -797,9 +860,12 @@ fn apply_setting_change(
     value: &str,
 ) -> AppResult<()> {
     if key == "geminiApiKey" {
-        save_gemini_api_key(&SystemGeminiKeyStore, value).map_err(|error| {
-            AppError::keyring_for("set_setting", format!("save Gemini API key: {error}"))
-        })?;
+        save_gemini_api_key_and_release_prompt_lock(
+            "set_setting",
+            state.as_ref(),
+            &SystemGeminiKeyStore,
+            value,
+        )?;
         return Ok(());
     }
 
@@ -835,6 +901,7 @@ fn tracking_state_from_running(running: bool) -> TrackingState {
 
 fn classify_snapshot(
     state: &AppState,
+    app: &AppHandle,
     api_key: &str,
     process_name: &str,
     window_title: &str,
@@ -873,6 +940,11 @@ fn classify_snapshot(
         }
     }
 
+    if api_key.trim().is_empty() {
+        prompt_for_gemini_api_key_settings(app, state);
+        return fallback_unknown_classification();
+    }
+
     match crate::gemini::classify_with_gemini(api_key, process_name, window_title) {
         Ok(result) => {
             match state.datastores.lock() {
@@ -895,12 +967,7 @@ fn classify_snapshot(
         }
         Err(error) => {
             log::warn!("Gemini classification failed for {process_name}: {error}");
-            ClassificationResult {
-                category: ActivityCategory::Unknown,
-                label: "Uncategorized".to_string(),
-                confidence: 0.0,
-                source: "fallback".to_string(),
-            }
+            fallback_unknown_classification()
         }
     }
 }
@@ -1045,5 +1112,103 @@ fn day_start_timestamp(date: &str) -> i64 {
         .expect("valid midnight")
         .and_utc()
         .timestamp_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Default)]
+    struct MemoryGeminiKeyStore {
+        value: Mutex<Option<String>>,
+    }
+
+    impl GeminiKeyStore for MemoryGeminiKeyStore {
+        fn read(&self) -> anyhow::Result<Option<String>> {
+            Ok(self.value.lock().expect("store lock").clone())
+        }
+
+        fn write(&self, value: &str) -> anyhow::Result<()> {
+            *self.value.lock().expect("store lock") = Some(value.to_string());
+            Ok(())
+        }
+    }
+
+    fn create_test_state() -> (AppState, PathBuf) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let base_dir = std::env::temp_dir().join(format!("act-track-ai-md-app-test-{unique}"));
+        std::fs::create_dir_all(&base_dir).expect("create temp dir");
+        let cache_path = base_dir.join("cache.db");
+        let activity_path = base_dir.join("activity.db");
+        let datastores = Datastores::open(&cache_path, &activity_path).expect("open datastores");
+        let memory_store = MemoryStore::open(&base_dir.join("memory.db")).expect("open memory store");
+
+        (
+            create_app_state(datastores, memory_store, false, Vec::new()).expect("create app state"),
+            base_dir,
+        )
+    }
+
+    #[test]
+    fn gemini_api_key_prompt_lock_is_single_shot_until_released() {
+        let (state, temp_dir) = create_test_state();
+
+        assert!(state.try_lock_gemini_api_key_prompt());
+        assert!(!state.try_lock_gemini_api_key_prompt());
+
+        state.unlock_gemini_api_key_prompt();
+
+        assert!(state.try_lock_gemini_api_key_prompt());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn saving_gemini_api_key_releases_prompt_lock() {
+        let (state, temp_dir) = create_test_state();
+        let store = MemoryGeminiKeyStore::default();
+
+        assert!(state.try_lock_gemini_api_key_prompt());
+        let saved = save_gemini_api_key_and_release_prompt_lock(
+            "set_setting",
+            &state,
+            &store,
+            "new-secret",
+        )
+            .expect("save key");
+
+        assert!(saved);
+        assert!(state.try_lock_gemini_api_key_prompt());
+        assert_eq!(store.read().expect("read store"), Some("new-secret".to_string()));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn blank_gemini_api_key_does_not_release_prompt_lock() {
+        let (state, temp_dir) = create_test_state();
+        let store = MemoryGeminiKeyStore::default();
+
+        assert!(state.try_lock_gemini_api_key_prompt());
+        let saved = save_gemini_api_key_and_release_prompt_lock(
+            "set_setting",
+            &state,
+            &store,
+            "   ",
+        )
+            .expect("save key");
+
+        assert!(!saved);
+        assert!(!state.try_lock_gemini_api_key_prompt());
+        assert_eq!(store.read().expect("read store"), None);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }
 pub use crate::settings::load_app_settings;

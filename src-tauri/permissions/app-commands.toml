@@ -10,6 +10,7 @@ commands.allow = [
   "get_settings",
   "get_tracking_status",
   "set_setting",
+  "set_settings",
   "get_setting",
   "generate_summary_now",
   "save_summary_feedback",

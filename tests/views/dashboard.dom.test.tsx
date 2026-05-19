@@ -29,6 +29,12 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+async function flushMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 function createDashboardRpcStub(): DashboardClient {
   const summary: DailySummary = {
     date: "2026-05-19",
@@ -141,10 +147,18 @@ describe("dashboard shell", () => {
 
   it("routes tab and action handlers through the dashboard controller", async () => {
     const rpc = createDashboardRpcStub();
+    let requestGeminiSettings: (() => void) | undefined;
+    const subscribeGeminiApiKeySettings = vi.fn(async (listener: () => void) => {
+      requestGeminiSettings = listener;
+      return () => undefined;
+    });
     let disposeRoot: (() => void) | undefined;
     const controller = createRoot((dispose) => {
       disposeRoot = dispose;
-      return useDashboardController({ rpc });
+      return useDashboardController({
+        rpc,
+        subscribeGeminiApiKeySettings,
+      });
     });
 
     expect(controller.activeTab()).toBe("today");
@@ -180,6 +194,10 @@ describe("dashboard shell", () => {
     await controller.setRangeWindow(14);
     expect(controller.rangeWindow()).toBe(14);
     expect(rpc.getStatisticsSnapshot).toHaveBeenLastCalledWith(14);
+
+    await flushMicrotasks();
+    requestGeminiSettings?.();
+    expect(controller.activeTab()).toBe("settings");
 
     disposeRoot?.();
   });

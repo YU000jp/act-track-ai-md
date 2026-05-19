@@ -991,6 +991,17 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.settings-callout {
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 193, 112, 0.28);
+  background: rgba(255, 193, 112, 0.08);
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .settings-state-pill {
   display: inline-flex;
   align-items: center;
