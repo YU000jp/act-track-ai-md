@@ -8,6 +8,12 @@ use crate::http::blocking_client;
 use crate::memory::{MemorySearchResult, MemoryStore};
 use crate::types::{DailySummary, TopApp};
 
+const SUMMARY_MEMORY_SEARCH_LIMIT: usize = 4;
+const SUMMARY_MEMORY_PATTERN_LIMIT: usize = 2;
+const SUMMARY_MEMORY_CONTEXT_LIMIT: usize = 2;
+const SUMMARY_TOP_APP_LIMIT: usize = 3;
+const SUMMARY_MAX_OUTPUT_TOKENS: i64 = 128;
+
 pub fn format_ai_summary_for_markdown(ai_summary: Option<&str>) -> String {
     match ai_summary {
         Some(summary) if !summary.trim().is_empty() => format!("## AI Summary\n\n{summary}\n"),
@@ -32,9 +38,14 @@ pub fn generate_daily_summary(
     summary_language: &str,
     summary_tone: &str,
 ) -> AppResult<SummaryGenerationReport> {
-    let day_snapshot = datastores.get_day_activity_snapshot(date).map_err(|error| {
-        AppError::database_for(command, format!("read day activity snapshot for {date}: {error}"))
-    })?;
+    let day_snapshot = datastores
+        .get_day_activity_snapshot(date)
+        .map_err(|error| {
+            AppError::database_for(
+                command,
+                format!("read day activity snapshot for {date}: {error}"),
+            )
+        })?;
     let summary = day_snapshot.summary;
     let total_tracked_ms = summary.total_tracked_ms;
     let productive_ms = summary.productive_ms;
@@ -53,7 +64,7 @@ pub fn generate_daily_summary(
     let mut ai_summary = None;
     let mut ai_summary_error = None;
     if !api_key.is_empty() && total_tracked_ms > 0 {
-        let prompt = build_summary_prompt(
+        let prompt = build_summary_user_prompt(
             date,
             total_tracked_ms,
             productive_ms,
@@ -62,16 +73,10 @@ pub fn generate_daily_summary(
             &top_apps,
             &summary_language,
             &summary_tone,
-            &memory_context,
         );
-        match call_gemini_for_summary(
-            command,
-            &prompt,
-            api_key,
-            &summary_language,
-            &summary_tone,
-            &memory_context,
-        ) {
+        let system_instruction =
+            build_summary_system_instruction(&summary_language, &summary_tone, &memory_context);
+        match call_gemini_for_summary(command, &prompt, &system_instruction, api_key) {
             Ok(summary) => ai_summary = Some(summary),
             Err(error) => ai_summary_error = Some(error),
         }
@@ -202,7 +207,7 @@ fn collect_memory_context(
             .join(" ")
     );
 
-    let results: Vec<MemorySearchResult> = memory_store.search(&query, 6);
+    let results: Vec<MemorySearchResult> = memory_store.search(&query, SUMMARY_MEMORY_SEARCH_LIMIT);
     let mut patterns = Vec::new();
     let mut contexts = Vec::new();
 
@@ -216,12 +221,18 @@ fn collect_memory_context(
     }
 
     MemoryContext {
-        patterns: patterns.into_iter().take(3).collect(),
-        contexts: contexts.into_iter().take(3).collect(),
+        patterns: patterns
+            .into_iter()
+            .take(SUMMARY_MEMORY_PATTERN_LIMIT)
+            .collect(),
+        contexts: contexts
+            .into_iter()
+            .take(SUMMARY_MEMORY_CONTEXT_LIMIT)
+            .collect(),
     }
 }
 
-fn build_summary_prompt(
+fn build_summary_user_prompt(
     date: &str,
     total_tracked_ms: i64,
     productive_ms: i64,
@@ -230,47 +241,20 @@ fn build_summary_prompt(
     top_apps: &[TopApp],
     summary_language: &str,
     summary_tone: &str,
-    memory_context: &MemoryContext,
 ) -> String {
     let app_list = if top_apps.is_empty() {
         "No apps tracked".to_string()
     } else {
         top_apps
             .iter()
-            .map(|app| {
-                format!(
-                    "- {}: {} ({})",
-                    app.process_name,
-                    format_ms(app.duration_ms),
-                    app.category.as_str()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let style_hints = if memory_context.patterns.is_empty() {
-        "- none".to_string()
-    } else {
-        memory_context
-            .patterns
-            .iter()
-            .map(|pattern| format!("- {pattern}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let context_hints = if memory_context.contexts.is_empty() {
-        "- none".to_string()
-    } else {
-        memory_context
-            .contexts
-            .iter()
-            .map(|context| format!("- {context}"))
+            .take(SUMMARY_TOP_APP_LIMIT)
+            .map(format_top_app_summary)
             .collect::<Vec<_>>()
             .join("\n")
     };
 
     format!(
-        "Summarize my productivity for {date}.\n\nTotal tracked: {}\nProductive: {}\nDistraction: {}\nNeutral: {}\n\nTop apps:\n{app_list}\n\nPreferred markdown style patterns from my history:\n{style_hints}\n\nRelevant past context from my history:\n{context_hints}\n\nWrite a brief 2-3 sentence summary in {summary_language}.\nTone: {summary_tone}.\nFocus on what went well and one area to improve.",
+        "Summarize my productivity for {date}.\n\nTotal tracked: {}\nProductive: {}\nDistraction: {}\nNeutral: {}\n\nTop apps:\n{app_list}\n\nWrite a brief 2-3 sentence summary in {summary_language}.\nTone: {summary_tone}.\nFocus on what went well and one area to improve.",
         format_ms(total_tracked_ms),
         format_ms(productive_ms),
         format_ms(distraction_ms),
@@ -278,13 +262,45 @@ fn build_summary_prompt(
     )
 }
 
-fn call_gemini_for_summary(
-    command: &'static str,
-    prompt: &str,
-    api_key: &str,
+fn build_summary_system_instruction(
     summary_language: &str,
     summary_tone: &str,
     memory_context: &MemoryContext,
+) -> String {
+    let style_hints = format_memory_list(&memory_context.patterns);
+    let context_hints = format_memory_list(&memory_context.contexts);
+
+    format!(
+        "You are a productivity coach. Provide brief daily summaries in {summary_language} with a {summary_tone} tone.\nUse these preferred markdown style patterns when relevant:\n{style_hints}\nRelevant past context:\n{context_hints}"
+    )
+}
+
+fn format_memory_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "- none".to_string()
+    } else {
+        items
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+fn format_top_app_summary(app: &TopApp) -> String {
+    format!(
+        "- {}: {} ({})",
+        app.process_name,
+        format_ms(app.duration_ms),
+        app.category.as_str()
+    )
+}
+
+fn call_gemini_for_summary(
+    command: &'static str,
+    prompt: &str,
+    system_instruction: &str,
+    api_key: &str,
 ) -> Result<String, AppError> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
@@ -294,18 +310,15 @@ fn call_gemini_for_summary(
         .header("Content-Type", "application/json")
         .json(&json!({
             "contents": [{ "parts": [{ "text": prompt }] }],
-            "systemInstruction": {
-                "parts": [{
-                    "text": format!(
-                        "You are a productivity coach. Provide brief daily summaries in {summary_language} with a {summary_tone} tone.\nWhen available, follow these preferred markdown style patterns:\n{}\nRelevant past context:\n{}",
-                        if memory_context.patterns.is_empty() { "- none".to_string() } else { memory_context.patterns.join("\n") },
-                        if memory_context.contexts.is_empty() { "- none".to_string() } else { memory_context.contexts.join("\n") },
-                    )
-                }]
+            "systemInstruction": { "parts": [{ "text": system_instruction }] },
+            "generationConfig": {
+                "maxOutputTokens": SUMMARY_MAX_OUTPUT_TOKENS
             }
         }))
         .send()
-        .map_err(|error| AppError::external_api_for(command, format!("send Gemini request: {error}")))?;
+        .map_err(|error| {
+            AppError::external_api_for(command, format!("send Gemini request: {error}"))
+        })?;
 
     if !response.status().is_success() {
         return Err(AppError::external_api_for(
@@ -342,4 +355,58 @@ fn format_ms(ms: i64) -> String {
 struct MemoryContext {
     patterns: Vec<String>,
     contexts: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ActivityCategory, TopApp};
+
+    fn sample_top_app(process_name: &str, duration_ms: i64, category: ActivityCategory) -> TopApp {
+        TopApp {
+            process_name: process_name.to_string(),
+            duration_ms,
+            category,
+        }
+    }
+
+    #[test]
+    fn summary_user_prompt_limits_top_apps_and_omits_memory_context() {
+        let prompt = build_summary_user_prompt(
+            "2026-05-19",
+            7_200_000,
+            3_600_000,
+            2_400_000,
+            1_200_000,
+            &[
+                sample_top_app("alpha", 5_400_000, ActivityCategory::Productive),
+                sample_top_app("beta", 3_000_000, ActivityCategory::Distraction),
+                sample_top_app("gamma", 1_800_000, ActivityCategory::Neutral),
+                sample_top_app("delta", 600_000, ActivityCategory::Productive),
+            ],
+            "Japanese",
+            "calm",
+        );
+
+        assert!(prompt.contains("alpha"));
+        assert!(prompt.contains("beta"));
+        assert!(prompt.contains("gamma"));
+        assert!(!prompt.contains("delta"));
+        assert!(!prompt.contains("Preferred markdown style patterns from my history"));
+        assert!(!prompt.contains("Relevant past context from my history"));
+    }
+
+    #[test]
+    fn summary_system_instruction_includes_memory_context_once() {
+        let memory_context = MemoryContext {
+            patterns: vec!["Use concise markdown bullets".to_string()],
+            contexts: vec!["Recent work focused on docs".to_string()],
+        };
+
+        let instruction = build_summary_system_instruction("Japanese", "calm", &memory_context);
+
+        assert!(instruction.contains("Use concise markdown bullets"));
+        assert!(instruction.contains("Recent work focused on docs"));
+        assert!(!instruction.contains("Top apps:"));
+    }
 }

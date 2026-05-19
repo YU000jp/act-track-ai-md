@@ -407,10 +407,7 @@ impl Datastores {
             .with_context(|| format!("read daily summary for {date_str}"))
     }
 
-    fn read_daily_summary_ai_summary_only(
-        &self,
-        date_str: &str,
-    ) -> anyhow::Result<Option<String>> {
+    fn read_daily_summary_ai_summary_only(&self, date_str: &str) -> anyhow::Result<Option<String>> {
         // Avoid deserializing totals or top apps when the caller only needs AI text.
         self.activity
             .query_row(
@@ -589,13 +586,15 @@ fn aggregate_range_activity_snapshot(
     for sample in activity {
         let day = sample.day.clone();
         let is_today = include_today_summary && day == today_date;
-        let entry = breakdown.entry(day.clone()).or_insert_with(|| StatisticsDaySummary {
-            date: day.clone(),
-            tracked_ms: 0,
-            productive_ms: 0,
-            distraction_ms: 0,
-            neutral_ms: 0,
-        });
+        let entry = breakdown
+            .entry(day.clone())
+            .or_insert_with(|| StatisticsDaySummary {
+                date: day.clone(),
+                tracked_ms: 0,
+                productive_ms: 0,
+                distraction_ms: 0,
+                neutral_ms: 0,
+            });
         entry.tracked_ms += sample.total_ms;
         totals.tracked_ms += sample.total_ms;
 
@@ -680,10 +679,7 @@ fn aggregate_range_activity_snapshot(
         productive_ms: today_totals.productive_ms,
         distraction_ms: today_totals.distraction_ms,
         neutral_ms: today_totals.neutral_ms,
-        top_apps: aggregate_top_apps_from_map(
-            today_top_app_aggregates.unwrap_or_default(),
-            10,
-        ),
+        top_apps: aggregate_top_apps_from_map(today_top_app_aggregates.unwrap_or_default(), 10),
         ai_summary: None,
     });
 
@@ -768,11 +764,13 @@ impl TopAppAggregate {
     fn dominant_category(&self) -> ActivityCategory {
         self.category_totals
             .iter()
-            .max_by(|(left_category, left_total), (right_category, right_total)| {
-                left_total
-                    .cmp(right_total)
-                    .then_with(|| category_rank(**left_category).cmp(&category_rank(**right_category)))
-            })
+            .max_by(
+                |(left_category, left_total), (right_category, right_total)| {
+                    left_total.cmp(right_total).then_with(|| {
+                        category_rank(**left_category).cmp(&category_rank(**right_category))
+                    })
+                },
+            )
             .map(|(category, _)| *category)
             .unwrap_or(ActivityCategory::Unknown)
     }

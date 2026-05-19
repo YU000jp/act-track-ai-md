@@ -14,9 +14,7 @@ use crate::db::{ActivityInsert, Datastores};
 use crate::error::{AppError, AppResult};
 use crate::markdown;
 use crate::memory::MemoryStore;
-use crate::secrets::{
-    save_gemini_api_key, GeminiKeyStore, SystemGeminiKeyStore,
-};
+use crate::secrets::{save_gemini_api_key, GeminiKeyStore, SystemGeminiKeyStore};
 use crate::settings::{parse_classification_rules, AppSettings, ClassificationRule};
 use crate::summarizer;
 use crate::tracker;
@@ -114,7 +112,8 @@ impl AppState {
     }
 
     fn unlock_gemini_api_key_prompt(&self) {
-        self.gemini_api_key_prompt_lock.store(false, Ordering::Release);
+        self.gemini_api_key_prompt_lock
+            .store(false, Ordering::Release);
     }
 }
 
@@ -254,9 +253,8 @@ fn save_gemini_api_key_and_release_prompt_lock(
     store: &dyn GeminiKeyStore,
     value: &str,
 ) -> AppResult<bool> {
-    let saved = save_gemini_api_key(store, value).map_err(|error| {
-        AppError::keyring_for(command, format!("save Gemini API key: {error}"))
-    })?;
+    let saved = save_gemini_api_key(store, value)
+        .map_err(|error| AppError::keyring_for(command, format!("save Gemini API key: {error}")))?;
 
     if saved {
         state.unlock_gemini_api_key_prompt();
@@ -375,7 +373,9 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                                     duration_ms,
                                     "failed to extend rollover activity duration",
                                 ) {
-                                    log::warn!("failed to extend rollover activity duration: {error}");
+                                    log::warn!(
+                                        "failed to extend rollover activity duration: {error}"
+                                    );
                                 }
                             }
                         }
@@ -440,12 +440,14 @@ pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> AppResult<TodaySumm
             error,
         )
     })?;
-    let day_snapshot = datastores.get_day_activity_snapshot(&today).map_err(|error| {
-        AppError::database_for(
-            "get_today_summary",
-            format!("read today's activity snapshot: {error}"),
-        )
-    })?;
+    let day_snapshot = datastores
+        .get_day_activity_snapshot(&today)
+        .map_err(|error| {
+            AppError::database_for(
+                "get_today_summary",
+                format!("read today's activity snapshot: {error}"),
+            )
+        })?;
 
     Ok(TodaySummary {
         tracked_ms: day_snapshot.summary.total_tracked_ms,
@@ -465,7 +467,10 @@ pub fn get_top_apps(state: State<'_, Arc<AppState>>) -> AppResult<Vec<TopApp>> {
     let top_apps = datastores
         .get_day_activity_snapshot(&today)
         .map_err(|error| {
-            AppError::database_for("get_top_apps", format!("read today's activity snapshot: {error}"))
+            AppError::database_for(
+                "get_top_apps",
+                format!("read today's activity snapshot: {error}"),
+            )
         })?
         .summary
         .top_apps;
@@ -555,7 +560,9 @@ pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> AppResult<Trackin
 }
 
 #[tauri::command]
-pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<DashboardBootstrapSnapshot> {
+pub fn get_dashboard_bootstrap(
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<DashboardBootstrapSnapshot> {
     let today = current_day_string();
     let settings = state.settings_snapshot();
     let tracking_status = {
@@ -583,12 +590,14 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
                     format!("read dashboard bootstrap snapshot: {error}"),
                 )
             })?;
-        let ai_summary = datastores.get_daily_summary_ai_summary(&today).map_err(|error| {
-            AppError::database_for(
-                "get_dashboard_bootstrap",
-                format!("read daily summary ai summary for {today}: {error}"),
-            )
-        })?;
+        let ai_summary = datastores
+            .get_daily_summary_ai_summary(&today)
+            .map_err(|error| {
+                AppError::database_for(
+                    "get_dashboard_bootstrap",
+                    format!("read daily summary ai summary for {today}: {error}"),
+                )
+            })?;
 
         let crate::db::BootstrapAggregationSnapshot {
             today_summary:
@@ -1190,12 +1199,7 @@ fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<S
         "summaryTone" => Some(settings.summary_tone),
         "markdownPrivacyMode" => Some(settings.markdown_privacy_mode.to_string()),
         "startInBackground" => Some(settings.start_in_background.to_string()),
-        "trackingEnabled" => Some(
-            state
-                .tracking_enabled
-                .load(Ordering::Relaxed)
-                .to_string(),
-        ),
+        "trackingEnabled" => Some(state.tracking_enabled.load(Ordering::Relaxed).to_string()),
         _ => None,
     }
 }
@@ -1354,7 +1358,12 @@ fn insert_activity_sample(
             category: classification.category,
             label: classification.label.clone(),
         })
-        .map_err(|error| AppError::database_for("insert_activity_sample", format!("insert activity sample: {error}")))
+        .map_err(|error| {
+            AppError::database_for(
+                "insert_activity_sample",
+                format!("insert activity sample: {error}"),
+            )
+        })
 }
 
 fn update_sample_duration(
@@ -1372,7 +1381,9 @@ fn update_sample_duration(
     })?;
     datastores
         .set_activity_duration(sample_id, duration_ms)
-        .map_err(|error| AppError::database_for(command, format!("update activity duration: {error}")))
+        .map_err(|error| {
+            AppError::database_for(command, format!("update activity duration: {error}"))
+        })
 }
 
 fn day_start_timestamp(date: &str) -> i64 {
@@ -1417,19 +1428,13 @@ mod tests {
         let cache_path = base_dir.join("cache.db");
         let activity_path = base_dir.join("activity.db");
         let datastores = Datastores::open(&cache_path, &activity_path).expect("open datastores");
-        let memory_store = MemoryStore::open(&base_dir.join("memory.db")).expect("open memory store");
+        let memory_store =
+            MemoryStore::open(&base_dir.join("memory.db")).expect("open memory store");
         let settings = AppSettings::default();
 
         (
-            create_app_state(
-                datastores,
-                memory_store,
-                false,
-                Vec::new(),
-                settings,
-                None,
-            )
-            .expect("create app state"),
+            create_app_state(datastores, memory_store, false, Vec::new(), settings, None)
+                .expect("create app state"),
             base_dir,
         )
     }
@@ -1460,11 +1465,14 @@ mod tests {
             &store,
             "new-secret",
         )
-            .expect("save key");
+        .expect("save key");
 
         assert!(saved);
         assert!(state.try_lock_gemini_api_key_prompt());
-        assert_eq!(store.read().expect("read store"), Some("new-secret".to_string()));
+        assert_eq!(
+            store.read().expect("read store"),
+            Some("new-secret".to_string())
+        );
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }
@@ -1475,13 +1483,9 @@ mod tests {
         let store = MemoryGeminiKeyStore::default();
 
         assert!(state.try_lock_gemini_api_key_prompt());
-        let saved = save_gemini_api_key_and_release_prompt_lock(
-            "set_setting",
-            &state,
-            &store,
-            "   ",
-        )
-            .expect("save key");
+        let saved =
+            save_gemini_api_key_and_release_prompt_lock("set_setting", &state, &store, "   ")
+                .expect("save key");
 
         assert!(!saved);
         assert!(!state.try_lock_gemini_api_key_prompt());

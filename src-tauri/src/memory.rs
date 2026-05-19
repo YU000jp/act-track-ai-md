@@ -278,7 +278,10 @@ fn ensure_search_text_column(db: &Connection) -> anyhow::Result<()> {
     }
 
     if !has_search_text {
-        db.execute("ALTER TABLE memory_entries ADD COLUMN search_text TEXT NOT NULL DEFAULT ''", [])?;
+        db.execute(
+            "ALTER TABLE memory_entries ADD COLUMN search_text TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
         backfill_search_text(db)?;
     }
 
@@ -401,22 +404,8 @@ mod tests {
     #[test]
     fn search_with_empty_query_returns_recent_results_up_to_limit() {
         let (store, temp_dir) = create_test_store();
-        insert_memory(
-            &store,
-            "context",
-            "Older",
-            r#"{}"#,
-            false,
-            100,
-        );
-        insert_memory(
-            &store,
-            "context",
-            "Newer",
-            r#"{}"#,
-            false,
-            200,
-        );
+        insert_memory(&store, "context", "Older", r#"{}"#, false, 100);
+        insert_memory(&store, "context", "Newer", r#"{}"#, false, 200);
 
         let results = store.search("", 1);
         assert_eq!(results.len(), 1);

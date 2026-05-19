@@ -189,8 +189,9 @@ mod tests {
 
     #[test]
     fn normalize_snapshot_keeps_title_when_process_path_is_missing() {
-        let snapshot = normalize_snapshot(Some((String::new(), "Protected Window".to_string())), None)
-            .expect("snapshot");
+        let snapshot =
+            normalize_snapshot(Some((String::new(), "Protected Window".to_string())), None)
+                .expect("snapshot");
 
         assert_eq!(snapshot.process_name, "unknown");
         assert_eq!(snapshot.window_title, "Protected Window");

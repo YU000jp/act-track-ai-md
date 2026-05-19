@@ -4,9 +4,12 @@ use crate::http::blocking_client;
 use crate::types::{ActivityCategory, ClassificationResult};
 
 const VALID_CATEGORIES: [&str; 3] = ["productive", "distraction", "neutral"];
+const CLASSIFICATION_MAX_OUTPUT_TOKENS: i64 = 64;
 
 pub fn build_classification_prompt(process_name: &str, window_title: &str) -> (String, String) {
-    let system = "You are a productivity classifier. Given a process name and window title, classify the activity. Respond with JSON only: { \"category\": \"productive\" | \"distraction\" | \"neutral\", \"label\": string, \"confidence\": number }".to_string();
+    let system =
+        "You are a productivity classifier. Classify the activity from a process name and window title. Return JSON with category, label, and confidence."
+            .to_string();
     let user = format!("Process: {process_name}\nWindow Title: {window_title}");
     (system, user)
 }
@@ -72,7 +75,11 @@ pub fn classify_with_gemini(
     );
     let body = json!({
         "contents": [{ "parts": [{ "text": user }] }],
-        "systemInstruction": { "parts": [{ "text": system }] }
+        "systemInstruction": { "parts": [{ "text": system }] },
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": CLASSIFICATION_MAX_OUTPUT_TOKENS
+        }
     });
 
     let response = blocking_client()
