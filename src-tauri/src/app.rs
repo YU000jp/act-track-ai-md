@@ -566,7 +566,7 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
         }
     };
 
-    let (today_snapshot, statistics_snapshot, daily_summary) = {
+    let (today_summary, top_apps, statistics_snapshot, daily_summary) = {
         let datastores = state.datastores.lock().map_err(|error| {
             lock_error(
                 "get_dashboard_bootstrap",
@@ -575,28 +575,56 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
             )
         })?;
 
-        let today_snapshot = datastores.get_day_activity_snapshot(&today).map_err(|error| {
-            AppError::database_for(
-                "get_dashboard_bootstrap",
-                format!("read today's activity snapshot: {error}"),
-            )
-        })?;
-        let statistics_snapshot = datastores
-            .get_statistics_snapshot(&today, 7, 10)
+        let bootstrap_snapshot = datastores
+            .get_dashboard_bootstrap_snapshot(&today, 7, 10)
             .map_err(|error| {
                 AppError::database_for(
                     "get_dashboard_bootstrap",
-                    format!("read dashboard statistics snapshot: {error}"),
+                    format!("read dashboard bootstrap snapshot: {error}"),
                 )
             })?;
-        let daily_summary = datastores.get_daily_summary(&today).map_err(|error| {
+        let ai_summary = datastores.get_daily_summary_ai_summary(&today).map_err(|error| {
             AppError::database_for(
                 "get_dashboard_bootstrap",
-                format!("read daily summary for {today}: {error}"),
+                format!("read daily summary ai summary for {today}: {error}"),
             )
         })?;
 
-        (today_snapshot, statistics_snapshot, daily_summary)
+        let crate::db::BootstrapAggregationSnapshot {
+            today_summary:
+                crate::types::DailySummary {
+                    total_tracked_ms,
+                    productive_ms,
+                    distraction_ms,
+                    neutral_ms,
+                    top_apps,
+                    ..
+                },
+            statistics_snapshot,
+        } = bootstrap_snapshot;
+
+        // Rehydrate the dashboard summary from the bootstrap aggregate and only fetch AI text separately.
+        let daily_summary = Some(DailySummary {
+            date: today.clone(),
+            total_tracked_ms,
+            productive_ms,
+            distraction_ms,
+            neutral_ms,
+            top_apps: top_apps.clone(),
+            ai_summary,
+        });
+
+        (
+            TodaySummary {
+                tracked_ms: total_tracked_ms,
+                productive_ms,
+                distraction_ms,
+                neutral_ms,
+            },
+            top_apps,
+            statistics_snapshot,
+            daily_summary,
+        )
     };
 
     let (memory_status, memory_records) = {
@@ -611,13 +639,8 @@ pub fn get_dashboard_bootstrap(state: State<'_, Arc<AppState>>) -> AppResult<Das
     };
 
     Ok(DashboardBootstrapSnapshot {
-        today_summary: TodaySummary {
-            tracked_ms: today_snapshot.summary.total_tracked_ms,
-            productive_ms: today_snapshot.summary.productive_ms,
-            distraction_ms: today_snapshot.summary.distraction_ms,
-            neutral_ms: today_snapshot.summary.neutral_ms,
-        },
-        top_apps: today_snapshot.summary.top_apps,
+        today_summary,
+        top_apps,
         statistics_snapshot,
         settings,
         tracking_status,
@@ -747,6 +770,7 @@ pub fn generate_summary_now(
         &today,
         &settings.markdown_export_path,
         settings.markdown_privacy_mode,
+        Some(&report.summary),
     ) {
         log::warn!("markdown export failed for {today}: {error}");
     }
@@ -877,6 +901,7 @@ fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
         date,
         &settings.markdown_export_path,
         settings.markdown_privacy_mode,
+        Some(&report.summary),
     ) {
         log::warn!("markdown export failed for {date}: {error}");
     }

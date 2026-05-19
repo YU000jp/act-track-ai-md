@@ -144,6 +144,7 @@ pub fn save_summary_feedback(
         return Ok(());
     }
 
+    // Feedback needs the stored totals/top apps to preserve the existing summary shape.
     let Some(existing) = datastores.get_daily_summary(date).map_err(|error| {
         AppError::database_for(
             command,
@@ -156,14 +157,11 @@ pub fn save_summary_feedback(
 
     let existing_ai_summary = existing.ai_summary.clone();
     datastores
-        .save_daily_summary(&DailySummary {
-            ai_summary: Some(edited.to_string()),
-            ..existing
-        })
+        .update_daily_summary_ai_summary(date, Some(edited))
         .map_err(|error| {
             AppError::database_for(
                 command,
-                format!("save summary feedback for {date}: {error}"),
+                format!("update summary feedback for {date}: {error}"),
             )
         })?;
 

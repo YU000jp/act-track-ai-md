@@ -28,6 +28,7 @@ pub fn export_day(
     date: &str,
     configured_path: &str,
     hide_window_titles: bool,
+    stored_summary: Option<&crate::types::DailySummary>,
 ) -> anyhow::Result<(PathBuf, String)> {
     let output_directory = resolve_markdown_export_directory(Some(configured_path));
     std::fs::create_dir_all(&output_directory)
@@ -36,8 +37,12 @@ pub fn export_day(
     let day_snapshot = datastores.get_day_activity_snapshot(date)?;
     let mut summary = day_snapshot.summary;
     let activity = day_snapshot.activity;
-    if let Some(stored_summary) = datastores.get_daily_summary(date)? {
-        summary.ai_summary = stored_summary.ai_summary;
+    if let Some(stored_summary) = stored_summary {
+        // Export callers that just generated the summary already know the AI text.
+        summary.ai_summary = stored_summary.ai_summary.clone();
+    } else if let Some(ai_summary) = datastores.get_daily_summary_ai_summary(date)? {
+        // Fallback stays lightweight: pull only the persisted AI summary, not the full row.
+        summary.ai_summary = Some(ai_summary);
     }
 
     let categories: Vec<String> = summary
