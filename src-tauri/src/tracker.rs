@@ -314,9 +314,11 @@ unsafe fn read_window_title_via_uiautomation(hwnd: isize) -> Option<String> {
     let title = element
         .CurrentName()
         .ok()
-        .map(|value: BSTR| value.to_string())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .and_then(|value: BSTR| {
+            let value = value.to_string();
+            let value = value.trim().to_string();
+            (!value.is_empty()).then_some(value)
+        });
 
     if needs_uninit {
         unsafe {

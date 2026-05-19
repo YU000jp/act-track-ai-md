@@ -24,6 +24,8 @@ Classification follows this order:
 3. Gemini fallback.
 4. Unknown fallback if Gemini fails or no API key is configured.
 
+The Settings tab shows this chain explicitly so it is clear when Gemini is available for automatic classification.
+
 Custom rules are JSON entries with:
 
 - `processNamePattern`

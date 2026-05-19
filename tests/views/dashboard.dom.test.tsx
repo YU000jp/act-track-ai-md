@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS, type ActivitySample, type AppSettings, type Classific
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
+const dashboardSettingsPath = resolve(process.cwd(), "src/frontend/dashboard/SettingsPanel.tsx");
 
 const BASE_SETTINGS: AppSettings = {
   geminiApiKeyConfigured: true,
@@ -425,11 +426,16 @@ describe("dashboard shell", () => {
 
   it("renders a header toggle for tracking and prevents duplicate clicks while pending", async () => {
     const appSource = readFileSync(dashboardAppPath, "utf8");
+    const settingsSource = readFileSync(dashboardSettingsPath, "utf8");
 
     expect(appSource).toContain("tracking-toggle-btn");
     expect(appSource).toContain("Pause tracking");
     expect(appSource).toContain("Resume tracking");
     expect(appSource).toContain("aria-busy={isTrackingTogglePending()}");
+    expect(appSource).toContain("Auto classify");
+    expect(appSource).toContain("Rules + cache + Gemini");
+    expect(settingsSource).toContain("Automatic classification order:");
+    expect(settingsSource).toContain("Save a Gemini API key to enable the Gemini step after rules and cache.");
   });
 
   it("falls back to staged dashboard data when bootstrap times out", async () => {

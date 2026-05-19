@@ -5,7 +5,7 @@ ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-b
 ## Features
 
 - Foreground window tracking
-- Cache-first classification with Gemini fallback
+- Rule-first classification with cache and Gemini fallback
 - SQLite activity log and daily summaries
 - Native tray icon and notifications with Tauri
 - Markdown export for daily reviews
@@ -35,6 +35,7 @@ pnpm install
 ```
 
 Open the Settings screen in the app to enter your Gemini API key. The key is stored securely on the device.
+When the key is present, classification uses custom rules first, then the SQLite cache, then Gemini, and finally an unknown fallback.
 
 ## Development
 
@@ -55,10 +56,18 @@ If Vite reports an outdated optimize cache, rerun with `pnpm run dev:frontend --
 ## Build
 
 ```bash
-pnpm run tauri:build
+pnpm run build:release
 ```
 
+This runs the Tauri package step and copies the distributable files into `release-assets/`.
+
 Tauri runs `pnpm run build:frontend` automatically before packaging.
+
+If you only need the lower-level Tauri package step:
+
+```bash
+pnpm run tauri:build
+```
 
 ## Verification
 
@@ -67,6 +76,7 @@ pnpm test
 pnpm run typecheck
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm run build:frontend
+pnpm run build:release
 pnpm run tauri:build
 ```
 
@@ -74,6 +84,7 @@ pnpm run tauri:build
 
 - The dashboard UI lives in `src/frontend/dashboard` and is implemented with SolidJS.
 - `pnpm run build:frontend` generates the bundled dashboard entrypoint used by Tauri for packaging.
+- `pnpm run build:release` creates the public release bundle and copies the distributables into `release-assets/`.
 - `pnpm run dev:frontend` starts the local Vite dashboard server.
 - Local data is stored under the app data directory.
 - Non-secret settings are persisted in SQLite. The Gemini API key is stored in the OS credential store.

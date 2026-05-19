@@ -80,42 +80,7 @@ jobs:
         run: pnpm run typecheck
 
       - name: Build Windows x64 release
-        run: pnpm run tauri:build
-
-      - name: Collect release assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $releaseDir = Join-Path $PWD "release-assets"
-
-          if (Test-Path $releaseDir) {
-            Remove-Item -Recurse -Force $releaseDir
-          }
-
-          New-Item -ItemType Directory -Path $releaseDir | Out-Null
-
-          $artifactRoots = @("src-tauri\target\release\bundle") | Where-Object { Test-Path $_ }
-          $patterns = @("*.exe", "*.msi", "*.zip")
-          $files = @()
-
-          foreach ($root in $artifactRoots) {
-            foreach ($pattern in $patterns) {
-              $files += Get-ChildItem -Path $root -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue
-            }
-          }
-
-          $files = $files | Sort-Object -Property FullName -Unique
-
-          if ($files.Count -eq 0) {
-            Write-Host "Searched roots: $($artifactRoots -join ', ')"
-            throw "No packaged Windows release assets were found."
-          }
-
-          foreach ($file in $files) {
-            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $releaseDir $file.Name)
-          }
-
-          Get-ChildItem -Path $releaseDir -File | Select-Object Name, Length
+        run: pnpm run build:release
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

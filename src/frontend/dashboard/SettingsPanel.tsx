@@ -30,6 +30,14 @@ function renderTrackingState(status: TrackingStatus): string {
   }
 }
 
+function describeClassificationFlow(geminiApiKeyConfigured: boolean): string {
+  if (geminiApiKeyConfigured) {
+    return "rules -> cache -> Gemini -> unknown fallback";
+  }
+
+  return "rules -> cache -> unknown fallback";
+}
+
 export function SettingsPanel(props: SettingsPanelProps) {
   return (
     <section id="panel-settings" class={`panel panel-settings ${props.active ? "active" : ""}`} aria-hidden={!props.active} role="tabpanel" aria-labelledby="tab-settings">
@@ -56,11 +64,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <div class="settings-hint">
                   Status: {props.settings.geminiApiKeyConfigured ? "configured" : "not configured"}. Leave blank to keep the current key.
                 </div>
-                {!props.settings.geminiApiKeyConfigured ? (
-                  <div class="settings-callout" role="status" aria-live="polite">
-                    Gemini API key is not configured yet. Classification will use the fallback path until you save one here.
-                  </div>
-                ) : null}
+                <div class="settings-hint">
+                  Automatic classification order: {describeClassificationFlow(props.settings.geminiApiKeyConfigured)}.
+                </div>
+                <div class="settings-callout" role="status" aria-live="polite">
+                  {props.settings.geminiApiKeyConfigured
+                    ? "Gemini is ready as the automatic classifier when rules and cache do not match."
+                    : "Save a Gemini API key to enable the Gemini step after rules and cache."}
+                </div>
               </div>
               <div class="form-group">
                 <label for="summaryLanguage">Summary language</label>

@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "build:frontend": "vite build",
+    "build:release": "node scripts/build-release.mjs",
     "dev:frontend": "vite",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

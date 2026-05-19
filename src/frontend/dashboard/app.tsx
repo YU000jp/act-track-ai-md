@@ -49,6 +49,10 @@ function describeMemoryStatus(status: MemoryStatus | null): string {
   return `${status.total} entries`;
 }
 
+function describeAutoClassificationStatus(geminiApiKeyConfigured: boolean): string {
+  return geminiApiKeyConfigured ? "Rules + cache + Gemini" : "Rules + cache";
+}
+
 function describeTrackingToggleLabel(status: TrackingStatus, isPending: boolean): string {
   if (isPending) {
     return status.running ? "Pausing..." : "Resuming...";
@@ -97,8 +101,8 @@ export function App(props: AppProps) {
             tone={controller.memoryStatus()?.enabled ? "accent" : "neutral"}
           />
           <DashboardStatusChip
-            label="Gemini"
-            value={settings().geminiApiKeyConfigured ? "Configured" : "Not set"}
+            label="Auto classify"
+            value={describeAutoClassificationStatus(settings().geminiApiKeyConfigured)}
             tone={settings().geminiApiKeyConfigured ? "success" : "warning"}
           />
           <button
