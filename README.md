@@ -1,5 +1,7 @@
 # ActTrack AI MD
 
+This project is a fork of [IrdanGu/act-track-ai](https://github.com/IrdanGu/act-track-ai), extended with a Tauri-based desktop app and related enhancements.
+
 ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-backed classification, SQLite activity logging, and daily summaries.
 
 ## Features
