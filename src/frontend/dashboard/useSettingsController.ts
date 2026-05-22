@@ -79,13 +79,13 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
       setGeminiApiKey("");
       setSettingsFeedback(
         restartKeys.length > 0
-          ? `Saved. Restart required to apply: ${restartKeys.join(", ")}`
+          ? "Saved. Restart required for start-in-background changes."
           : "Saved. Changes are ready to use.",
       );
       props.pushToast(
         "success",
         "Settings saved",
-        restartKeys.length > 0 ? "Restart required for some changes." : "Changes are ready to use.",
+        restartKeys.length > 0 ? "Restart required for start-in-background changes." : "Changes are ready to use.",
       );
       return true;
     } catch (error) {

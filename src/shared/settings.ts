@@ -2,12 +2,8 @@ import { ACTIVITY_CATEGORIES, DEFAULT_SETTINGS, type ActivityCategory, type AppS
 
 export type ClassificationRule = ClassificationRuleDraft;
 
+// Only settings that change the next launch behavior belong here.
 export const RESTART_REQUIRED_SETTINGS: Array<keyof AppSettings> = [
-  "pollIntervalMs",
-  "idleTimeoutMs",
-  "notificationCooldownMs",
-  "gracePeriodMs",
-  "autoStart",
   "startInBackground",
 ];
 

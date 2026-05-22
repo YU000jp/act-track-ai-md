@@ -373,7 +373,7 @@ describe("dashboard helpers", () => {
         autoStart: false,
         pollIntervalMs: 5_000,
       }),
-    ).toEqual(["pollIntervalMs", "autoStart"]);
+    ).toEqual([]);
   });
 
   it("parses numeric input with bounds", () => {
@@ -535,6 +535,7 @@ describe("dashboard shell", () => {
     expect(appSource).toContain("Rules + cache + Gemini");
     expect(settingsSource).toContain("Rule evaluation order:");
     expect(settingsSource).toContain("Save a Gemini API key to enable the Gemini step after rules and cache.");
+    expect(settingsSource).toContain("Only start-in-background changes require a restart.");
   });
 
   it("falls back to staged dashboard data when bootstrap times out", async () => {

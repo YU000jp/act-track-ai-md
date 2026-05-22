@@ -308,7 +308,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <div id="settings-feedback" class="settings-feedback settings-footer-feedback" role="status" aria-live="polite">
             {props.settingsFeedback}
           </div>
-          <p class="settings-hint settings-footer-hint">Restart required for polling, idle timing, and auto-start visibility changes.</p>
+          <p class="settings-hint settings-footer-hint">Only start-in-background changes require a restart.</p>
         </div>
       </form>
     </section>
