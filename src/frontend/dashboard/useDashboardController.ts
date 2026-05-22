@@ -22,6 +22,9 @@ type ControllerProps = {
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
   subscribeActivityLogUpdates?: (listener: () => void) => Promise<() => void>;
   subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
+  subscribeMarkdownExportFailures?: (
+    listener: (payload: import("../../shared/types").MarkdownExportFailure) => void,
+  ) => Promise<() => void>;
 };
 
 export type DashboardController = {
@@ -233,6 +236,16 @@ export function useDashboardController(props: ControllerProps): DashboardControl
         .then(registerSubscriptionDispose)
         .catch((error) => {
           console.warn("[dashboard] failed to subscribe to browser history updates", error);
+        });
+    }
+
+    if (props.subscribeMarkdownExportFailures) {
+      void props.subscribeMarkdownExportFailures((payload) => {
+        pushToast("error", "Markdown export failed", `${payload.date}: ${payload.error.message}`);
+      })
+        .then(registerSubscriptionDispose)
+        .catch((error) => {
+          console.warn("[dashboard] failed to subscribe to markdown export failures", error);
         });
     }
   });

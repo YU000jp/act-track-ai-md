@@ -50,12 +50,9 @@ pub struct NativeInboxRead {
 }
 
 pub fn browser_native_inbox_paths() -> anyhow::Result<BrowserNativeInboxPaths> {
-    let project_dirs = directories::ProjectDirs::from(
-        PROJECT_QUALIFIER,
-        PROJECT_ORGANIZATION,
-        PROJECT_NAME,
-    )
-    .ok_or_else(|| anyhow::anyhow!("unable to resolve browser native inbox paths"))?;
+    let project_dirs =
+        directories::ProjectDirs::from(PROJECT_QUALIFIER, PROJECT_ORGANIZATION, PROJECT_NAME)
+            .ok_or_else(|| anyhow::anyhow!("unable to resolve browser native inbox paths"))?;
     let data_dir = project_dirs.data_local_dir();
     Ok(BrowserNativeInboxPaths {
         inbox_path: data_dir.join(INBOX_FILE_NAME),
@@ -71,7 +68,15 @@ pub fn normalize_native_browser_visit(input: NativeBrowserVisitInput) -> NativeB
         .source
         .unwrap_or_else(|| "native-messaging".to_string());
     let title = input.title.unwrap_or_default();
-    let event_id = stable_visit_key(&input.browser, &profile, &input.url, &title, visited_at, last_visit_at, &source);
+    let event_id = stable_visit_key(
+        &input.browser,
+        &profile,
+        &input.url,
+        &title,
+        visited_at,
+        last_visit_at,
+        &source,
+    );
 
     NativeBrowserVisitRecord {
         event_id,
@@ -211,7 +216,10 @@ pub fn read_native_message(reader: &mut impl Read) -> anyhow::Result<Option<serd
 }
 
 #[allow(dead_code)]
-pub fn write_native_message(writer: &mut impl Write, value: &serde_json::Value) -> anyhow::Result<()> {
+pub fn write_native_message(
+    writer: &mut impl Write,
+    value: &serde_json::Value,
+) -> anyhow::Result<()> {
     let payload = serde_json::to_vec(value).context("serialize native message response")?;
     let length = u32::try_from(payload.len()).context("native message too large")?;
     writer
@@ -233,9 +241,8 @@ pub fn stable_visit_key(
     last_visit_at: i64,
     source: &str,
 ) -> String {
-    let canonical = format!(
-        "{browser}|{profile}|{url}|{title}|{visited_at}|{last_visit_at}|{source}"
-    );
+    let canonical =
+        format!("{browser}|{profile}|{url}|{title}|{visited_at}|{last_visit_at}|{source}");
     format!("{:016x}", fnv1a64(canonical.as_bytes()))
 }
 
@@ -263,8 +270,24 @@ mod tests {
 
     #[test]
     fn stable_visit_key_is_deterministic() {
-        let first = stable_visit_key("firefox", "default", "https://example.com", "Example", 1, 1, "native-messaging");
-        let second = stable_visit_key("firefox", "default", "https://example.com", "Example", 1, 1, "native-messaging");
+        let first = stable_visit_key(
+            "firefox",
+            "default",
+            "https://example.com",
+            "Example",
+            1,
+            1,
+            "native-messaging",
+        );
+        let second = stable_visit_key(
+            "firefox",
+            "default",
+            "https://example.com",
+            "Example",
+            1,
+            1,
+            "native-messaging",
+        );
         assert_eq!(first, second);
     }
 

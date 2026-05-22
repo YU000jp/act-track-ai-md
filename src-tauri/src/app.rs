@@ -35,6 +35,7 @@ const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
 const TRACKING_STATUS_EVENT: &str = "tracking-status";
 const ACTIVITY_LOG_UPDATED_EVENT: &str = "activity-log-updated";
 const BROWSER_HISTORY_UPDATED_EVENT: &str = "browser-history-updated";
+const MARKDOWN_EXPORT_FAILED_EVENT: &str = "markdown-export-failed";
 const GEMINI_API_KEY_SETTINGS_EVENT: &str = "gemini-api-key-settings-requested";
 
 #[derive(Clone)]
@@ -192,13 +193,10 @@ fn persist_classification_rules_json(
     classification_rules_json: &str,
     command: &'static str,
 ) -> AppResult<()> {
-    let datastores = state.datastores.lock().map_err(|error| {
-        lock_error(
-            command,
-            "lock datastores for rule projection sync",
-            error,
-        )
-    })?;
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error(command, "lock datastores for rule projection sync", error))?;
     datastores.set_setting("classificationRulesJson", classification_rules_json)?;
     Ok(())
 }
@@ -213,9 +211,7 @@ fn apply_classification_rules_projection(
     Ok(records)
 }
 
-pub fn with_dashboard_commands(
-    builder: tauri::Builder<tauri::Wry>,
-) -> tauri::Builder<tauri::Wry> {
+pub fn with_dashboard_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
         get_today_summary,
         get_top_apps,
@@ -257,6 +253,13 @@ pub struct TodaySummary {
     pub distraction_ms: i64,
     #[serde(rename = "neutralMs")]
     pub neutral_ms: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownExportFailure {
+    pub date: String,
+    pub error: AppError,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -467,7 +470,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
 
             if today != last_seen_day {
                 let previous_day = previous_day_string(&today);
-                if let Err(error) = run_daily_export(&state, &previous_day) {
+                if let Err(error) = run_daily_export(&app, &state, &previous_day) {
                     log::warn!("daily export failed for {previous_day}: {error}");
                 }
                 last_seen_day = today;
@@ -514,7 +517,8 @@ pub fn start_browser_native_inbox_loop(app: AppHandle, state: Arc<AppState>) {
                     let mut inserted = 0usize;
 
                     for record in batch.records {
-                        let source_visit_id = crate::browser_native::stable_visit_id(&record.event_id);
+                        let source_visit_id =
+                            crate::browser_native::stable_visit_id(&record.event_id);
                         let visited_at = record.visited_at;
                         let last_visit_at = record.last_visit_at;
                         let insert = BrowserVisitInsert {
@@ -629,7 +633,10 @@ pub fn get_browser_visits(
     let visits = datastores
         .get_browser_visits(limit.unwrap_or(12))
         .map_err(|error| {
-            AppError::database_for("get_browser_visits", format!("read browser visits: {error}"))
+            AppError::database_for(
+                "get_browser_visits",
+                format!("read browser visits: {error}"),
+            )
         })?;
     Ok(visits)
 }
@@ -686,10 +693,13 @@ pub fn get_activity_log(
     query: ActivityLogQuery,
     state: State<'_, Arc<AppState>>,
 ) -> AppResult<Vec<ActivityLogEntry>> {
-    let datastores = state
-        .datastores
-        .lock()
-        .map_err(|error| lock_error("get_activity_log", "lock datastores for activity log", error))?;
+    let datastores = state.datastores.lock().map_err(|error| {
+        lock_error(
+            "get_activity_log",
+            "lock datastores for activity log",
+            error,
+        )
+    })?;
     let entries = datastores
         .get_activity_log_entries(&query)
         .map_err(|error| {
@@ -739,7 +749,8 @@ pub fn get_dashboard_bootstrap(
 ) -> AppResult<DashboardBootstrapSnapshot> {
     let today = current_day_string();
     let settings = state.settings_snapshot();
-    let tracking_status = tracking_status_from_running(state.tracking_enabled.load(Ordering::Relaxed));
+    let tracking_status =
+        tracking_status_from_running(state.tracking_enabled.load(Ordering::Relaxed));
 
     let crate::db::BootstrapAggregationSnapshot {
         today_summary:
@@ -1082,7 +1093,7 @@ pub fn generate_summary_now(
             error,
         )
     })?;
-    let report = summarizer::generate_daily_summary(
+    let mut report = summarizer::generate_daily_summary(
         "generate_summary_now",
         &mut datastores,
         &state.active_api_key(),
@@ -1094,15 +1105,8 @@ pub fn generate_summary_now(
     if let Some(error) = &report.ai_summary_error {
         log::warn!("daily summary generated without AI output: {error}");
     }
-    if let Err(error) = markdown::export_day(
-        &datastores,
-        &today,
-        &settings.markdown_export_path,
-        settings.markdown_privacy_mode,
-        Some(&report.summary),
-    ) {
-        log::warn!("markdown export failed for {today}: {error}");
-    }
+    report.markdown_export_error =
+        export_markdown_summary(&datastores, &today, &settings, &report.summary);
     Ok(report)
 }
 
@@ -1203,7 +1207,7 @@ pub fn toggle_tracking(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppRe
     set_tracking_enabled(&app, &state, enabled)
 }
 
-fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
+fn run_daily_export(app: &AppHandle, state: &Arc<AppState>, date: &str) -> AppResult<()> {
     let settings = state.settings_snapshot();
     let mut datastores = state
         .datastores
@@ -1225,16 +1229,53 @@ fn run_daily_export(state: &Arc<AppState>, date: &str) -> AppResult<()> {
     if let Some(error) = &report.ai_summary_error {
         log::warn!("daily export completed without AI output for {date}: {error}");
     }
-    if let Err(error) = markdown::export_day(
-        &datastores,
-        date,
-        &settings.markdown_export_path,
-        settings.markdown_privacy_mode,
-        Some(&report.summary),
-    ) {
+    if let Some(error) = export_markdown_summary(&datastores, date, &settings, &report.summary) {
+        emit_markdown_export_failure_with_app(
+            app,
+            MarkdownExportFailure {
+                date: date.to_string(),
+                error: error.clone(),
+            },
+        );
         log::warn!("markdown export failed for {date}: {error}");
     }
     Ok(())
+}
+
+fn export_markdown_summary(
+    datastores: &Datastores,
+    date: &str,
+    settings: &AppSettings,
+    summary: &DailySummary,
+) -> Option<AppError> {
+    match markdown::export_day(
+        datastores,
+        date,
+        &settings.markdown_export_path,
+        settings.markdown_privacy_mode,
+        Some(summary),
+    ) {
+        Ok(_) => None,
+        Err(error) => Some(AppError::internal(format!(
+            "markdown export failed for {date}: {error}"
+        ))),
+    }
+}
+
+fn emit_markdown_export_failure_with_app(app: &AppHandle, failure: MarkdownExportFailure) {
+    emit_markdown_export_failure(
+        |event, payload| app.emit(event, payload).map_err(|error| error.to_string()),
+        failure,
+    );
+}
+
+fn emit_markdown_export_failure(
+    emit: impl Fn(&str, MarkdownExportFailure) -> Result<(), String>,
+    failure: MarkdownExportFailure,
+) {
+    if let Err(error) = emit(MARKDOWN_EXPORT_FAILED_EVENT, failure) {
+        log::warn!("failed to emit markdown export failure: {error}");
+    }
 }
 
 fn current_day_string() -> String {
@@ -1613,7 +1654,9 @@ fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<S
         "markdownPrivacyMode" => Some(settings.markdown_privacy_mode.to_string()),
         "startInBackground" => Some(settings.start_in_background.to_string()),
         "browserHistoryEnabled" => Some(settings.browser_history_enabled.to_string()),
-        "browserHistoryPollIntervalMs" => Some(settings.browser_history_poll_interval_ms.to_string()),
+        "browserHistoryPollIntervalMs" => {
+            Some(settings.browser_history_poll_interval_ms.to_string())
+        }
         "browserHistoryRedactQuery" => Some(settings.browser_history_redact_query.to_string()),
         "trackingEnabled" => Some(state.tracking_enabled.load(Ordering::Relaxed).to_string()),
         _ => None,
@@ -1936,6 +1979,10 @@ fn day_start_timestamp(date: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{ActivityInsert, Datastores};
+    use crate::summarizer;
+    use crate::types::ActivityCategory;
+    use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1975,6 +2022,44 @@ mod tests {
                 .expect("create app state"),
             base_dir,
         )
+    }
+
+    fn create_test_datastores() -> (Datastores, PathBuf) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let base_dir = std::env::temp_dir().join(format!("act-track-ai-md-export-test-{unique}"));
+        std::fs::create_dir_all(&base_dir).expect("create temp dir");
+        let cache_path = base_dir.join("cache.db");
+        let activity_path = base_dir.join("activity.db");
+        let datastores = Datastores::open(&cache_path, &activity_path).expect("open datastores");
+
+        (datastores, base_dir)
+    }
+
+    fn seed_activity_sample(
+        datastores: &Datastores,
+        timestamp: i64,
+        process_name: &str,
+        window_title: &str,
+        category: ActivityCategory,
+        label: &str,
+        duration_ms: i64,
+    ) -> i64 {
+        let id = datastores
+            .insert_activity_sample(ActivityInsert {
+                timestamp,
+                process_name: process_name.to_string(),
+                window_title: window_title.to_string(),
+                category,
+                label: label.to_string(),
+            })
+            .expect("insert activity sample");
+        datastores
+            .set_activity_duration(id, duration_ms)
+            .expect("set activity duration");
+        id
     }
 
     #[test]
@@ -2068,5 +2153,73 @@ mod tests {
         );
 
         assert!(is_missing_autostart_entry_error(&error));
+    }
+
+    #[test]
+    fn summary_generation_reports_markdown_export_failure() {
+        let (datastores, temp_dir) = create_test_datastores();
+        let date = "2026-05-19";
+        let (_, end) = Datastores::get_day_bounds(date);
+        seed_activity_sample(
+            &datastores,
+            end - 61_000,
+            "code",
+            "main.rs - VSCode",
+            ActivityCategory::Productive,
+            "Coding",
+            61_000,
+        );
+
+        let report = summarizer::generate_daily_summary(
+            "summary_generation_reports_markdown_export_failure",
+            &datastores,
+            "",
+            None,
+            date,
+            "Japanese",
+            "encouraging",
+        )
+        .expect("generate summary");
+
+        let blocked_export_path = temp_dir.join("blocked-export");
+        std::fs::write(&blocked_export_path, "blocked").expect("create blocked path");
+        let settings = AppSettings {
+            markdown_export_path: blocked_export_path.to_string_lossy().to_string(),
+            ..AppSettings::default()
+        };
+
+        let export_error = export_markdown_summary(&datastores, date, &settings, &report.summary);
+
+        assert!(export_error.is_some());
+        assert!(export_error
+            .as_ref()
+            .expect("export error")
+            .to_string()
+            .contains("markdown export failed"));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn markdown_export_failure_notification_includes_date_and_error() {
+        let failures = RefCell::new(Vec::new());
+        let failure = MarkdownExportFailure {
+            date: "2026-05-19".to_string(),
+            error: AppError::internal("markdown export failed for 2026-05-19: create failed"),
+        };
+
+        emit_markdown_export_failure(
+            |event, payload| {
+                assert_eq!(event, MARKDOWN_EXPORT_FAILED_EVENT);
+                failures.borrow_mut().push(payload);
+                Ok(())
+            },
+            failure.clone(),
+        );
+
+        let payloads = failures.into_inner();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].date, failure.date);
+        assert_eq!(payloads[0].error.to_string(), failure.error.to_string());
     }
 }

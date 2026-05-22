@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::{ActivityCategory, ClassificationRuleScope};
+use serde::{Deserialize, Serialize};
 
 pub use crate::types::ClassificationRuleDraft as ClassificationRule;
 
@@ -157,7 +157,10 @@ pub fn parse_classification_rules(raw: Option<&str>) -> Vec<ClassificationRule> 
             .map(str::trim)
             .unwrap_or("")
             .to_string();
-        let enabled = obj.get("enabled").and_then(|value| value.as_bool()).unwrap_or(true);
+        let enabled = obj
+            .get("enabled")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
         let scope = parse_classification_rule_scope(
             obj.get("scope").and_then(|value| value.as_str()),
             &process_name_pattern,
@@ -230,7 +233,9 @@ fn parse_classification_rule_scope(
         Some("process") => ClassificationRuleScope::Process,
         Some("title") => ClassificationRuleScope::Title,
         Some("both") => ClassificationRuleScope::Both,
-        _ if !process_name_pattern.is_empty() && !window_title_pattern.is_empty() => ClassificationRuleScope::Both,
+        _ if !process_name_pattern.is_empty() && !window_title_pattern.is_empty() => {
+            ClassificationRuleScope::Both
+        }
         _ if !window_title_pattern.is_empty() => ClassificationRuleScope::Title,
         _ => ClassificationRuleScope::Process,
     }

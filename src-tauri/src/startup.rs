@@ -23,16 +23,16 @@ use crate::settings::{parse_classification_rules, serialize_classification_rules
 pub fn run() -> anyhow::Result<()> {
     let builder = with_dashboard_commands(
         tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .target(Target::new(TargetKind::Webview))
-                .build(),
-        )
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(Vec::<&str>::new()),
-        ))
+            .plugin(
+                tauri_plugin_log::Builder::new()
+                    .target(Target::new(TargetKind::Webview))
+                    .build(),
+            )
+            .plugin(tauri_plugin_notification::init())
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(Vec::<&str>::new()),
+            )),
     );
 
     builder
@@ -114,7 +114,9 @@ fn setup_app(app: &mut tauri::App) -> anyhow::Result<()> {
     app.manage(state.clone());
     emit_tracking_status(
         &app.handle(),
-        state.tracking_enabled.load(std::sync::atomic::Ordering::Relaxed),
+        state
+            .tracking_enabled
+            .load(std::sync::atomic::Ordering::Relaxed),
     );
 
     if settings.auto_start {
@@ -143,8 +145,7 @@ fn setup_app(app: &mut tauri::App) -> anyhow::Result<()> {
 }
 
 fn build_tray(app: &mut tauri::App, state: Arc<crate::app::AppState>) -> anyhow::Result<()> {
-    let dashboard_item =
-        MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
+    let dashboard_item = MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
     let toggle_tracking_item = MenuItem::with_id(
         app,
         "toggle-tracking",
@@ -156,10 +157,9 @@ fn build_tray(app: &mut tauri::App, state: Arc<crate::app::AppState>) -> anyhow:
     let state_for_menu = state.clone();
     let menu = Menu::with_items(app, &[&dashboard_item, &toggle_tracking_item, &quit_item])?;
 
-    let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
-        "../../src/frontend/assets/icon.png"
-    ))
-    .map_err(|error| anyhow::anyhow!(error))?;
+    let tray_icon =
+        tauri::image::Image::from_bytes(include_bytes!("../../src/frontend/assets/icon.png"))
+            .map_err(|error| anyhow::anyhow!(error))?;
 
     TrayIconBuilder::new()
         .icon(tray_icon)

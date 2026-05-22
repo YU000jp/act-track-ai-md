@@ -34,11 +34,16 @@ export function useSummaryController(props: UseSummaryControllerProps): SummaryC
     try {
       const report: SummaryGenerationReport = await props.rpc.generateSummaryNow();
       setSummaryFeedback(report.summary.aiSummary ?? "");
-      setSummaryFeedbackStatus(
-        report.aiSummaryError
-          ? `Generated with AI fallback: ${report.aiSummaryError.message}`
-          : "Summary generated and exported.",
-      );
+      const aiSummaryMessage = report.aiSummaryError
+        ? `Generated with AI fallback: ${report.aiSummaryError.message}`
+        : "Summary generated";
+      if (report.markdownExportError) {
+        setSummaryFeedbackStatus(
+          `${aiSummaryMessage}. Markdown export failed: ${report.markdownExportError.message}`,
+        );
+      } else {
+        setSummaryFeedbackStatus(`${aiSummaryMessage} and exported.`);
+      }
       try {
         await props.memoryController.refreshMemorySnapshot();
       } catch (error) {
@@ -46,11 +51,19 @@ export function useSummaryController(props: UseSummaryControllerProps): SummaryC
         // memory refresh is blocked by permissions or a transient backend error.
         console.warn("[dashboard] failed to refresh memory snapshot after summary generation", error);
       }
-      props.pushToast(
-        "info",
-        "Summary generated",
-        report.aiSummaryError ? "Exported without AI summary." : "Summary was generated and exported.",
-      );
+      if (report.markdownExportError) {
+        props.pushToast(
+          "error",
+          "Markdown export failed",
+          report.markdownExportError.message,
+        );
+      } else {
+        props.pushToast(
+          "info",
+          "Summary generated",
+          report.aiSummaryError ? "Exported without AI summary." : "Summary was generated and exported.",
+        );
+      }
     } catch (error) {
       props.reportError("Failed to generate summary", error);
     }

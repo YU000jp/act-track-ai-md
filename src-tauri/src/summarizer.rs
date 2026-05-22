@@ -27,6 +27,8 @@ pub struct SummaryGenerationReport {
     pub summary: DailySummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_summary_error: Option<AppError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub markdown_export_error: Option<AppError>,
 }
 
 pub fn generate_daily_summary(
@@ -133,6 +135,7 @@ pub fn generate_daily_summary(
     Ok(SummaryGenerationReport {
         summary,
         ai_summary_error,
+        markdown_export_error: None,
     })
 }
 

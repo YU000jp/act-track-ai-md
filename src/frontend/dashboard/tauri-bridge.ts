@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { attachConsole } from "@tauri-apps/plugin-log";
 import { normalizeAppError } from "../../shared/app-error";
-import type { DashboardRPC, TrackingStatus } from "../../shared/types";
+import type { DashboardRPC, MarkdownExportFailure, TrackingStatus } from "../../shared/types";
 
 type TrackingStatusPayload = {
   running: boolean;
@@ -18,6 +18,7 @@ let rpcClient: DashboardClient | null = null;
 const GEMINI_API_KEY_SETTINGS_EVENT = "gemini-api-key-settings-requested";
 const ACTIVITY_LOG_UPDATED_EVENT = "activity-log-updated";
 const BROWSER_HISTORY_UPDATED_EVENT = "browser-history-updated";
+const MARKDOWN_EXPORT_FAILED_EVENT = "markdown-export-failed";
 
 async function invokeDashboard<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -104,6 +105,14 @@ export async function subscribeBrowserHistoryUpdates(
 ): Promise<() => void> {
   return listen(BROWSER_HISTORY_UPDATED_EVENT, () => {
     listener();
+  });
+}
+
+export async function subscribeMarkdownExportFailures(
+  listener: (payload: MarkdownExportFailure) => void,
+): Promise<() => void> {
+  return listen<MarkdownExportFailure>(MARKDOWN_EXPORT_FAILED_EVENT, (event) => {
+    listener(event.payload);
   });
 }
 

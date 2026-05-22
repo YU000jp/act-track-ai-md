@@ -140,6 +140,12 @@ export type TrackingStatus = {
 export type SummaryGenerationReport = {
   summary: DailySummary;
   aiSummaryError?: import("./app-error").AppErrorPayload;
+  markdownExportError?: import("./app-error").AppErrorPayload;
+};
+
+export type MarkdownExportFailure = {
+  date: string;
+  error: import("./app-error").AppErrorPayload;
 };
 
 export type DashboardBootstrapSnapshot = {

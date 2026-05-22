@@ -43,7 +43,11 @@ mod tests {
     use super::*;
     use crate::types::ActivityCategory;
 
-    fn rule(scope: ClassificationRuleScope, process: &str, title: &str) -> ClassificationRuleRecord {
+    fn rule(
+        scope: ClassificationRuleScope,
+        process: &str,
+        title: &str,
+    ) -> ClassificationRuleRecord {
         ClassificationRuleRecord {
             id: 1,
             priority: 1,

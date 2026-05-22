@@ -17,6 +17,7 @@ import {
   subscribeActivityLogUpdates,
   subscribeBrowserHistoryUpdates,
   subscribeGeminiApiKeySettings,
+  subscribeMarkdownExportFailures,
 } from "./tauri-bridge";
 
 type AppProps = {
@@ -25,6 +26,9 @@ type AppProps = {
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
   subscribeActivityLogUpdates?: (listener: () => void) => Promise<() => void>;
   subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
+  subscribeMarkdownExportFailures?: (
+    listener: (payload: import("../../shared/types").MarkdownExportFailure) => void,
+  ) => Promise<() => void>;
 };
 
 function describeTrackingState(status: TrackingStatus): string {
@@ -75,6 +79,8 @@ export function App(props: AppProps) {
     subscribeGeminiApiKeySettings: props.subscribeGeminiApiKeySettings ?? subscribeGeminiApiKeySettings,
     subscribeActivityLogUpdates: props.subscribeActivityLogUpdates ?? subscribeActivityLogUpdates,
     subscribeBrowserHistoryUpdates: props.subscribeBrowserHistoryUpdates ?? subscribeBrowserHistoryUpdates,
+    subscribeMarkdownExportFailures:
+      props.subscribeMarkdownExportFailures ?? subscribeMarkdownExportFailures,
   });
 
   const trackingStatus = controller.trackingStatus;

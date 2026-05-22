@@ -43,7 +43,10 @@ impl BrowserWatermark {
     fn initial(kind: BrowserHistoryKind) -> Self {
         let lookback_ms = DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
         Self {
-            visit_time_raw: unix_ms_to_history_time(kind, Utc::now().timestamp_millis() - lookback_ms),
+            visit_time_raw: unix_ms_to_history_time(
+                kind,
+                Utc::now().timestamp_millis() - lookback_ms,
+            ),
             source_visit_id: 0,
         }
     }
@@ -103,7 +106,10 @@ impl BrowserHistoryCollector {
                             url: row.url.clone(),
                             title: row.title.clone(),
                             visited_at: history_time_to_unix_ms(profile.kind, row.visited_at_raw),
-                            last_visit_at: history_time_to_unix_ms(profile.kind, row.last_visit_at_raw),
+                            last_visit_at: history_time_to_unix_ms(
+                                profile.kind,
+                                row.last_visit_at_raw,
+                            ),
                             source: "history-db".to_string(),
                         };
 
@@ -158,7 +164,12 @@ impl BrowserHistoryCollector {
 fn discover_browser_profiles() -> Vec<BrowserProfile> {
     let mut profiles = Vec::new();
     for (browser, kind, root, history_file) in browser_history_roots() {
-        profiles.extend(discover_profiles_for_browser(&browser, kind, &root, history_file));
+        profiles.extend(discover_profiles_for_browser(
+            &browser,
+            kind,
+            &root,
+            history_file,
+        ));
     }
     profiles.sort_by(|left, right| {
         left.browser
@@ -221,11 +232,7 @@ fn firefox_profile_roots() -> Vec<PathBuf> {
     }
 
     if let Some(home) = std::env::var_os("HOME") {
-        roots.push(
-            PathBuf::from(home.clone())
-                .join(".mozilla")
-                .join("firefox"),
-        );
+        roots.push(PathBuf::from(home.clone()).join(".mozilla").join("firefox"));
         roots.push(
             PathBuf::from(home)
                 .join("Library")
@@ -511,7 +518,10 @@ mod tests {
 
     #[test]
     fn converts_firefox_time_to_unix_ms() {
-        assert_eq!(firefox_time_to_unix_ms(1_700_000_000_000_000), 1_700_000_000_000);
+        assert_eq!(
+            firefox_time_to_unix_ms(1_700_000_000_000_000),
+            1_700_000_000_000
+        );
     }
 
     #[test]
@@ -539,7 +549,10 @@ mod tests {
         assert_eq!(rows[0].source_visit_id, 42);
         assert_eq!(rows[0].url, "https://example.com/path?q=1");
         assert_eq!(rows[0].title, "Example");
-        assert_eq!(history_time_to_unix_ms(BrowserHistoryKind::Chromium, rows[0].visited_at_raw), 1_700_000_000_000);
+        assert_eq!(
+            history_time_to_unix_ms(BrowserHistoryKind::Chromium, rows[0].visited_at_raw),
+            1_700_000_000_000
+        );
     }
 
     #[test]
@@ -559,6 +572,9 @@ mod tests {
         assert_eq!(rows[0].source_visit_id, 99);
         assert_eq!(rows[0].url, "https://example.org/path?q=2");
         assert_eq!(rows[0].title, "Firefox Example");
-        assert_eq!(history_time_to_unix_ms(BrowserHistoryKind::Firefox, rows[0].visited_at_raw), 1_700_000_000_000);
+        assert_eq!(
+            history_time_to_unix_ms(BrowserHistoryKind::Firefox, rows[0].visited_at_raw),
+            1_700_000_000_000
+        );
     }
 }

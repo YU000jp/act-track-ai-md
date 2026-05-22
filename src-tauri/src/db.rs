@@ -374,8 +374,10 @@ impl Datastores {
     }
 
     pub fn delete_classification_rule(&self, id: i64) -> anyhow::Result<()> {
-        self.cache
-            .execute("DELETE FROM classification_rules WHERE id = ?1", params![id])?;
+        self.cache.execute(
+            "DELETE FROM classification_rules WHERE id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
@@ -1438,7 +1440,9 @@ fn entry_matches_activity_log_text(entry: &ActivityLogEntry, needle: &str) -> bo
         entry.url.as_deref().unwrap_or_default(),
     ];
 
-    haystacks.into_iter().any(|value| contains_activity_log_text(value, needle))
+    haystacks
+        .into_iter()
+        .any(|value| contains_activity_log_text(value, needle))
 }
 
 #[derive(Default)]

@@ -11,7 +11,7 @@ import {
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
 import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
-import { DEFAULT_SETTINGS, type ActivityLogEntry, type ActivityLogQuery, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, type ActivityLogEntry, type ActivityLogQuery, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MarkdownExportFailure, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
@@ -664,6 +664,86 @@ describe("dashboard shell", () => {
     expect(rpc.generateSummaryNow).toHaveBeenCalledTimes(1);
     expect(memoryController.refreshMemorySnapshot).toHaveBeenCalledTimes(1);
     expect(pushToast).toHaveBeenCalledTimes(1);
+
+    disposeRoot?.();
+  });
+
+  it("surfaces markdown export failures in the summary feedback state", async () => {
+    const rpc = {
+      ...createDashboardRpcStub(),
+      generateSummaryNow: vi.fn(async () => ({
+        summary: {
+          date: "2026-05-19",
+          totalTrackedMs: 7_200_000,
+          productiveMs: 4_500_000,
+          distractionMs: 1_500_000,
+          neutralMs: 1_200_000,
+          topApps: [{ processName: "code", durationMs: 3_600_000, category: "productive" }],
+          aiSummary: "Draft summary",
+        },
+        markdownExportError: {
+          kind: "internal",
+          message: "markdown export failed for 2026-05-19: blocked output directory",
+        },
+      })),
+    };
+    const reportError = vi.fn();
+    const pushToast = vi.fn();
+    const memoryController = {
+      refreshMemorySnapshot: vi.fn(async () => undefined),
+    };
+
+    let disposeRoot: (() => void) | undefined;
+    const controller = createRoot((dispose) => {
+      disposeRoot = dispose;
+      return useSummaryController({
+        rpc: rpc as DashboardClient,
+        memoryController,
+        reportError,
+        pushToast,
+      });
+    });
+
+    await controller.generateSummaryNow();
+
+    expect(controller.summaryFeedbackStatus()).toContain("Markdown export failed");
+    expect(reportError).not.toHaveBeenCalled();
+    expect(pushToast).toHaveBeenCalledWith(
+      "error",
+      "Markdown export failed",
+      "markdown export failed for 2026-05-19: blocked output directory",
+    );
+
+    disposeRoot?.();
+  });
+
+  it("surfaces rollover markdown export failures through dashboard toasts", async () => {
+    const subscribeMarkdownExportFailures = vi.fn(async (listener: (payload: MarkdownExportFailure) => void) => {
+      await flushMicrotasks();
+      listener({
+        date: "2026-05-19",
+        error: {
+          kind: "internal",
+          message: "markdown export failed for 2026-05-19: blocked output directory",
+        },
+      });
+      return () => undefined;
+    });
+
+    let disposeRoot: (() => void) | undefined;
+    const controller = createRoot((dispose) => {
+      disposeRoot = dispose;
+      return useDashboardController({
+        rpc: createDashboardRpcStub(),
+        subscribeMarkdownExportFailures,
+      });
+    });
+
+    await flushMicrotasks();
+
+    expect(subscribeMarkdownExportFailures).toHaveBeenCalledTimes(1);
+    expect(controller.toasts().some((toast) => toast.title === "Markdown export failed")).toBe(true);
+    expect(controller.toasts()[0]?.message).toContain("2026-05-19");
 
     disposeRoot?.();
   });
