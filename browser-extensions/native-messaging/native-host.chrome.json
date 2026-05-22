@@ -1,0 +1,9 @@
+{
+  "name": "com.irdan.act_track_ai_md",
+  "description": "Act Track AI MD native messaging host",
+  "path": "C:\\Path\\To\\act-track-ai-md-native-host.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://PLACEHOLDER_EXTENSION_ID/"
+  ]
+}

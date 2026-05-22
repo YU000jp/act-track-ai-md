@@ -20,11 +20,11 @@ function renderTrackingState(status: TrackingStatus): string {
 
   switch (status.state) {
     case "productive":
-      return "Active and productive";
+      return "Productive";
     case "distracted":
-      return "Active but distracted";
+      return "Distracted";
     case "idle":
-      return "Active but idle";
+      return "Idle";
     default:
       return "Active";
   }
@@ -46,7 +46,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <DashboardSurface
             eyebrow="AI"
             title="Summary controls"
-            description="Keep the core summary controls up front. Advanced rule editing stays tucked away."
+            description="Keep the core summary controls up front. Advanced rules stay tucked away."
             class="settings-surface"
           >
             <div class="field-grid">
@@ -64,12 +64,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <div class="settings-hint">
                   Status: {props.settings.geminiApiKeyConfigured ? "configured" : "not configured"}. Leave blank to keep the current key.
                 </div>
-                <div class="settings-hint">
-                  Automatic classification order: {describeClassificationFlow(props.settings.geminiApiKeyConfigured)}.
-                </div>
+                <div class="settings-hint">Rule evaluation order: {describeClassificationFlow(props.settings.geminiApiKeyConfigured)}.</div>
                 <div class="settings-callout" role="status" aria-live="polite">
                   {props.settings.geminiApiKeyConfigured
-                    ? "Gemini is ready as the automatic classifier when rules and cache do not match."
+                    ? "Gemini is ready when rules and cache do not match."
                     : "Save a Gemini API key to enable the Gemini step after rules and cache."}
                 </div>
               </div>
@@ -96,9 +94,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 />
               </div>
               <details class="settings-details field-span">
-                <summary>Advanced rule editor</summary>
+                <summary>Advanced rules JSON</summary>
                 <div class="settings-details-body">
-                  <label for="classificationRulesJson">Classification rules JSON</label>
+                  <label for="classificationRulesJson">Rules JSON</label>
                   <textarea
                     id="classificationRulesJson"
                     name="classificationRulesJson"
@@ -107,7 +105,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     value={props.settings.classificationRulesJson}
                     onInput={(event) => props.onSettingChange("classificationRulesJson", event.currentTarget.value)}
                   />
-                  <div class="settings-hint">Use the management screen for day-to-day edits. JSON is kept for bulk changes and recovery.</div>
+                  <div class="settings-hint">Use the rules screen for day-to-day edits. JSON is kept for bulk changes and recovery.</div>
                 </div>
               </details>
             </div>
@@ -145,6 +143,32 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   Hide window when launched automatically
                 </label>
                 <div class="settings-hint">Applies only when auto start is enabled.</div>
+              </div>
+              <div class="form-group checkbox field-span">
+                <label>
+                  <input
+                    type="checkbox"
+                    id="browserHistoryEnabled"
+                    name="browserHistoryEnabled"
+                    checked={props.settings.browserHistoryEnabled}
+                    onInput={(event) => props.onSettingChange("browserHistoryEnabled", event.currentTarget.checked)}
+                  />
+                  Collect browser history from Chrome, Edge, and Firefox
+                </label>
+                <div class="settings-hint">This keeps a local browser visit log separate from foreground tracking.</div>
+              </div>
+              <div class="form-group checkbox field-span">
+                <label>
+                  <input
+                    type="checkbox"
+                    id="browserHistoryRedactQuery"
+                    name="browserHistoryRedactQuery"
+                    checked={props.settings.browserHistoryRedactQuery}
+                    onInput={(event) => props.onSettingChange("browserHistoryRedactQuery", event.currentTarget.checked)}
+                  />
+                  Hide query strings in browser history views
+                </label>
+                <div class="settings-hint">The raw URL stays local, but the dashboard can omit search parameters.</div>
               </div>
               <details class="settings-details field-span">
                 <summary>Advanced timing</summary>
@@ -211,6 +235,17 @@ export function SettingsPanel(props: SettingsPanelProps) {
                       min={0}
                       value={props.settings.gracePeriodMs}
                       onInput={(event) => props.onSettingChange("gracePeriodMs", parseIntegerInput(event.currentTarget.value, props.settings.gracePeriodMs, 0))}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="browserHistoryPollIntervalMs">Browser history poll interval (ms)</label>
+                    <input
+                      type="number"
+                      id="browserHistoryPollIntervalMs"
+                      name="browserHistoryPollIntervalMs"
+                      min={1000}
+                      value={props.settings.browserHistoryPollIntervalMs}
+                      onInput={(event) => props.onSettingChange("browserHistoryPollIntervalMs", parseIntegerInput(event.currentTarget.value, props.settings.browserHistoryPollIntervalMs, 1000))}
                     />
                   </div>
                 </div>

@@ -71,17 +71,17 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
 
   return (
     <section
-      id="panel-classification"
+      id="panel-rules"
       class={`panel panel-classification ${props.active ? "active" : ""}`}
       aria-hidden={!props.active}
       role="tabpanel"
-      aria-labelledby="tab-classification"
+      aria-labelledby="tab-rules"
     >
       <div class="panel-grid panel-grid-2 classification-grid">
         <DashboardSurface
           eyebrow="Library"
-          title="Classification rules"
-          description="Manual rules sit above cache and keep recurring windows classified consistently. Conditions stay collapsed until you need them."
+          title="Rules"
+          description="Manual rules sit above cache and keep recurring windows classified consistently."
           class="surface-hero"
           actions={
             <>
@@ -94,7 +94,7 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
             </>
           }
         >
-          <div class="classification-toolbar" aria-label="Classification filters">
+          <div class="classification-toolbar" aria-label="Rules filters">
             <div class="form-group classification-search">
               <label for="classificationSearch">Search</label>
               <input
@@ -433,7 +433,7 @@ export function ClassificationPanel(props: ClassificationPanelProps) {
                     </div>
                   </Show>
                   <p class="settings-hint classification-hint field-span">
-                    Title matching uses substring logic. Leave this blank unless the title is stable enough to help classification.
+                    Title matching uses substring logic. Leave this blank unless the title is stable enough to help matching.
                   </p>
                 </div>
               </details>

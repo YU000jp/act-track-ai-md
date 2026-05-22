@@ -20,6 +20,9 @@ pub struct AppSettings {
     pub summary_tone: String,
     pub markdown_privacy_mode: bool,
     pub start_in_background: bool,
+    pub browser_history_enabled: bool,
+    pub browser_history_poll_interval_ms: i64,
+    pub browser_history_redact_query: bool,
 }
 
 impl Default for AppSettings {
@@ -39,6 +42,9 @@ impl Default for AppSettings {
             summary_tone: "encouraging".to_string(),
             markdown_privacy_mode: false,
             start_in_background: true,
+            browser_history_enabled: false,
+            browser_history_poll_interval_ms: 15_000,
+            browser_history_redact_query: true,
         }
     }
 }
@@ -94,6 +100,19 @@ pub fn load_app_settings(
         start_in_background: parse_boolean_setting(
             get_setting("startInBackground")?,
             defaults.start_in_background,
+        ),
+        browser_history_enabled: parse_boolean_setting(
+            get_setting("browserHistoryEnabled")?,
+            defaults.browser_history_enabled,
+        ),
+        browser_history_poll_interval_ms: parse_number_setting(
+            get_setting("browserHistoryPollIntervalMs")?,
+            defaults.browser_history_poll_interval_ms,
+            1000,
+        ),
+        browser_history_redact_query: parse_boolean_setting(
+            get_setting("browserHistoryRedactQuery")?,
+            defaults.browser_history_redact_query,
         ),
     })
 }

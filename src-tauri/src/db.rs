@@ -7,7 +7,7 @@ use rusqlite::{params, types::Type, Connection, OptionalExtension};
 use crate::settings::ClassificationRule;
 use crate::types::{
     ActivityCategory, ActivitySample, DailySummary, StatisticsDaySummary, StatisticsSnapshot,
-    ClassificationRuleRecord, ClassificationRuleScope, TopApp,
+    BrowserVisit, ClassificationRuleRecord, ClassificationRuleScope, TopApp,
 };
 
 pub struct DayActivitySnapshot {
@@ -44,6 +44,17 @@ pub struct ActivityInsert {
     pub window_title: String,
     pub category: ActivityCategory,
     pub label: String,
+}
+
+pub struct BrowserVisitInsert {
+    pub browser: String,
+    pub profile: String,
+    pub source_visit_id: i64,
+    pub url: String,
+    pub title: String,
+    pub visited_at: i64,
+    pub last_visit_at: i64,
+    pub source: String,
 }
 
 pub struct Datastores {
@@ -119,6 +130,23 @@ impl Datastores {
               ai_summary        TEXT,
               created_at        INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
             );
+            CREATE TABLE IF NOT EXISTS browser_visit_log (
+              id               INTEGER PRIMARY KEY AUTOINCREMENT,
+              browser          TEXT NOT NULL,
+              profile          TEXT NOT NULL,
+              source_visit_id  INTEGER NOT NULL,
+              url              TEXT NOT NULL,
+              title            TEXT NOT NULL,
+              visited_at       INTEGER NOT NULL,
+              last_visit_at    INTEGER NOT NULL,
+              source           TEXT NOT NULL,
+              created_at       INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+              UNIQUE(browser, profile, source_visit_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_browser_visit_log_last_visit_at
+              ON browser_visit_log(last_visit_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_browser_visit_log_browser_profile
+              ON browser_visit_log(browser, profile, visited_at DESC);
             CREATE TABLE IF NOT EXISTS settings (
               key   TEXT PRIMARY KEY,
               value TEXT
@@ -670,6 +698,46 @@ impl Datastores {
             )
             .with_context(|| format!("update duration for activity {id}"))?;
         Ok(())
+    }
+
+    pub fn insert_browser_visit(&self, visit: BrowserVisitInsert) -> anyhow::Result<bool> {
+        let affected = self
+            .activity
+            .execute(
+                "INSERT OR IGNORE INTO browser_visit_log (browser, profile, source_visit_id, url, title, visited_at, last_visit_at, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    visit.browser,
+                    visit.profile,
+                    visit.source_visit_id,
+                    visit.url,
+                    visit.title,
+                    visit.visited_at,
+                    visit.last_visit_at,
+                    visit.source,
+                ],
+            )
+            .with_context(|| "insert browser visit".to_string())?;
+        Ok(affected > 0)
+    }
+
+    pub fn get_browser_visits(&self, limit: i64) -> anyhow::Result<Vec<BrowserVisit>> {
+        let mut stmt = self.activity.prepare(
+            "SELECT browser, profile, url, title, visited_at, last_visit_at, source FROM browser_visit_log ORDER BY last_visit_at DESC, visited_at DESC, id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit.max(0)], |row| {
+            Ok(BrowserVisit {
+                browser: row.get(0)?,
+                profile: row.get(1)?,
+                url: row.get(2)?,
+                title: row.get(3)?,
+                visited_at: row.get(4)?,
+                last_visit_at: row.get(5)?,
+                source: row.get(6)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .with_context(|| "collect browser visits".to_string())
     }
 
     pub fn get_activity_range(

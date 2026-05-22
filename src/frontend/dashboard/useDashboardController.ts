@@ -6,6 +6,7 @@ import { type TrackingStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
 import { parseBootstrapTimeout, withTimeout } from "./helpers";
 import type { DashboardErrorState, DashboardToast, TabKey } from "./types";
+import { useBrowserHistoryController } from "./useBrowserHistoryController";
 import { useMemoryController } from "./useMemoryController";
 import { useClassificationController } from "./useClassificationController";
 import { useSettingsController } from "./useSettingsController";
@@ -18,6 +19,7 @@ type ControllerProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
+  subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
 };
 
 export type DashboardController = {
@@ -29,6 +31,7 @@ export type DashboardController = {
   toasts: () => DashboardToast[];
   todayStats: ReturnType<typeof useStatsController>["todayStats"];
   topApps: ReturnType<typeof useStatsController>["topApps"];
+  browserVisits: ReturnType<typeof useBrowserHistoryController>["browserVisits"];
   recentWindows: ReturnType<typeof useTimelineController>["recentWindows"];
   rangeStats: ReturnType<typeof useStatsController>["rangeStats"];
   rangeWindow: ReturnType<typeof useStatsController>["rangeWindow"];
@@ -93,6 +96,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     const [
       todaySummaryResult,
       topAppsResult,
+      browserVisitsResult,
       settingsResult,
       trackingResult,
       memorySnapshotResult,
@@ -101,6 +105,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
       await Promise.allSettled([
         props.rpc.getTodaySummary(),
         props.rpc.getTopApps(),
+        props.rpc.getBrowserVisits(12),
         props.rpc.getSettings(),
         props.rpc.getTrackingStatus(),
         props.rpc.getMemorySnapshot(10),
@@ -128,6 +133,10 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
     if (settingsResult.status === "fulfilled") {
       settingsController.hydrateSettings(settingsResult.value);
+    }
+
+    if (browserVisitsResult.status === "fulfilled") {
+      browserHistoryController.hydrateBrowserVisits(browserVisitsResult.value);
     }
 
     if (trackingResult.status === "fulfilled") {
@@ -159,6 +168,12 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     reportError: reportDashboardError,
   });
   const memoryController = useMemoryController({
+    rpc: props.rpc,
+    reportError: reportDashboardError,
+    pushToast,
+  });
+
+  const browserHistoryController = useBrowserHistoryController({
     rpc: props.rpc,
     reportError: reportDashboardError,
     pushToast,
@@ -204,6 +219,23 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     });
   });
 
+  onMount(() => {
+    if (!props.subscribeBrowserHistoryUpdates) {
+      return;
+    }
+
+    let disposeBrowserHistoryListener: (() => void) | undefined;
+    void props.subscribeBrowserHistoryUpdates(() => {
+      void browserHistoryController.refreshBrowserVisits();
+    }).then((dispose) => {
+      disposeBrowserHistoryListener = dispose;
+    });
+
+    onCleanup(() => {
+      disposeBrowserHistoryListener?.();
+    });
+  });
+
   async function hydrateDashboard(): Promise<void> {
     try {
       const configuredTimeout = parseBootstrapTimeout(
@@ -225,6 +257,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
       classificationController.hydrateRules(bootstrap.classificationRules);
       summaryController.hydrateSummary(bootstrap.dailySummary?.aiSummary);
       memoryController.hydrateMemory(bootstrap.memoryStatus, bootstrap.memoryRecords);
+      browserHistoryController.hydrateBrowserVisits(bootstrap.browserVisits);
       trackingController.hydrateTracking(bootstrap.trackingStatus);
       await timelineController.refreshTodayTimeline();
       clearDashboardError();
@@ -254,6 +287,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     toasts,
     todayStats: statsController.todayStats,
     topApps: statsController.topApps,
+    browserVisits: browserHistoryController.browserVisits,
     recentWindows: timelineController.recentWindows,
     rangeStats: statsController.rangeStats,
     rangeWindow: statsController.rangeWindow,

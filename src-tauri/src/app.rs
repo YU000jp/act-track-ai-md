@@ -10,7 +10,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_meta::PACKAGE_NAME;
-use crate::db::{ActivityInsert, Datastores};
+use crate::browser::BrowserHistoryCollector;
+use crate::browser_native::{
+    load_native_browser_inbox_cursor, read_native_browser_visits_from_cursor,
+    save_native_browser_inbox_cursor,
+};
+use crate::db::{ActivityInsert, BrowserVisitInsert, Datastores};
 use crate::error::{AppError, AppResult};
 use crate::markdown;
 use crate::memory::MemoryStore;
@@ -21,13 +26,14 @@ use crate::settings::{
 use crate::summarizer;
 use crate::tracker;
 use crate::types::{
-    ActivityCategory, ActivitySample, ClassificationResult, ClassificationRuleRecord, DailySummary,
-    MemoryRecord, MemorySnapshot, MemoryStatus, StatisticsSnapshot, TopApp, TrackingState,
-    WindowSnapshot,
+    ActivityCategory, ActivitySample, BrowserVisit, ClassificationResult,
+    ClassificationRuleRecord, DailySummary, MemoryRecord, MemorySnapshot, MemoryStatus,
+    StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
 };
 
 const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
 const TRACKING_STATUS_EVENT: &str = "tracking-status";
+const BROWSER_HISTORY_UPDATED_EVENT: &str = "browser-history-updated";
 const GEMINI_API_KEY_SETTINGS_EVENT: &str = "gemini-api-key-settings-requested";
 
 #[derive(Clone)]
@@ -204,6 +210,9 @@ pub struct SettingsUpdate {
     pub summary_tone: String,
     pub markdown_privacy_mode: bool,
     pub start_in_background: bool,
+    pub browser_history_enabled: bool,
+    pub browser_history_poll_interval_ms: i64,
+    pub browser_history_redact_query: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -232,6 +241,7 @@ pub struct TrackingStatus {
 pub struct DashboardBootstrapSnapshot {
     pub today_summary: TodaySummary,
     pub top_apps: Vec<TopApp>,
+    pub browser_visits: Vec<BrowserVisit>,
     pub statistics_snapshot: StatisticsSnapshot,
     pub classification_rules: Vec<ClassificationRuleRecord>,
     pub settings: AppSettings,
@@ -389,6 +399,89 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
     });
 }
 
+pub fn start_browser_history_loop(app: AppHandle, state: Arc<AppState>) {
+    thread::spawn(move || {
+        let mut collector = BrowserHistoryCollector::new();
+
+        loop {
+            let settings = state.settings_snapshot();
+            let poll_ms = settings.browser_history_poll_interval_ms.max(1) as u64;
+
+            if settings.browser_history_enabled {
+                let inserted = collector.sync(&state.datastores, &settings);
+                if inserted > 0 {
+                    if let Err(error) = app.emit(BROWSER_HISTORY_UPDATED_EVENT, ()) {
+                        log::warn!("failed to emit browser history update event: {error}");
+                    }
+                }
+            }
+
+            thread::sleep(Duration::from_millis(poll_ms));
+        }
+    });
+}
+
+pub fn start_browser_native_inbox_loop(app: AppHandle, state: Arc<AppState>) {
+    thread::spawn(move || {
+        let mut cursor = load_native_browser_inbox_cursor().unwrap_or(0);
+
+        loop {
+            match read_native_browser_visits_from_cursor(cursor) {
+                Ok(batch) => {
+                    cursor = batch.next_cursor;
+                    let mut inserted = 0usize;
+
+                    for record in batch.records {
+                        let source_visit_id = crate::browser_native::stable_visit_id(&record.event_id);
+                        let visited_at = record.visited_at;
+                        let last_visit_at = record.last_visit_at;
+                        let insert = BrowserVisitInsert {
+                            browser: record.browser,
+                            profile: record.profile,
+                            source_visit_id,
+                            url: record.url,
+                            title: record.title,
+                            visited_at,
+                            last_visit_at,
+                            source: record.source,
+                        };
+
+                        match state.datastores.lock() {
+                            Ok(datastores) => match datastores.insert_browser_visit(insert) {
+                                Ok(saved) if saved => {
+                                    inserted += 1;
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    log::warn!("browser native insert failed: {error}");
+                                }
+                            },
+                            Err(error) => {
+                                log::warn!("browser native datastore lock failed: {error}");
+                            }
+                        }
+                    }
+
+                    if inserted > 0 {
+                        if let Err(error) = app.emit(BROWSER_HISTORY_UPDATED_EVENT, ()) {
+                            log::warn!("failed to emit browser native update event: {error}");
+                        }
+                    }
+
+                    if let Err(error) = save_native_browser_inbox_cursor(cursor) {
+                        log::warn!("failed to persist browser native inbox cursor: {error}");
+                    }
+                }
+                Err(error) => {
+                    log::warn!("browser native inbox sync failed: {error}");
+                }
+            }
+
+            thread::sleep(Duration::from_secs(3));
+        }
+    });
+}
+
 #[tauri::command]
 pub fn get_today_summary(state: State<'_, Arc<AppState>>) -> AppResult<TodaySummary> {
     let today = current_day_string();
@@ -434,6 +527,26 @@ pub fn get_top_apps(state: State<'_, Arc<AppState>>) -> AppResult<Vec<TopApp>> {
         .summary
         .top_apps;
     Ok(top_apps)
+}
+
+#[tauri::command]
+pub fn get_browser_visits(
+    limit: Option<i64>,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<Vec<BrowserVisit>> {
+    let datastores = state.datastores.lock().map_err(|error| {
+        lock_error(
+            "get_browser_visits",
+            "lock datastores for browser visits",
+            error,
+        )
+    })?;
+    let visits = datastores
+        .get_browser_visits(limit.unwrap_or(12))
+        .map_err(|error| {
+            AppError::database_for("get_browser_visits", format!("read browser visits: {error}"))
+        })?;
+    Ok(visits)
 }
 
 #[tauri::command]
@@ -603,6 +716,22 @@ pub fn get_dashboard_bootstrap(
         memory_store.get_snapshot(10)
     };
 
+    let browser_visits = {
+        let datastores = state.datastores.lock().map_err(|error| {
+            lock_error(
+                "get_dashboard_bootstrap",
+                "lock datastores for browser visits",
+                error,
+            )
+        })?;
+        datastores.get_browser_visits(12).map_err(|error| {
+            AppError::database_for(
+                "get_dashboard_bootstrap",
+                format!("read browser visits for bootstrap: {error}"),
+            )
+        })?
+    };
+
     Ok(DashboardBootstrapSnapshot {
         today_summary: TodaySummary {
             tracked_ms: total_tracked_ms,
@@ -611,6 +740,7 @@ pub fn get_dashboard_bootstrap(
             neutral_ms,
         },
         top_apps,
+        browser_visits,
         statistics_snapshot,
         classification_rules: state.classification_rules_snapshot(),
         settings,
@@ -801,6 +931,10 @@ pub fn set_settings(
     updated_settings.summary_tone = input.settings.summary_tone.clone();
     updated_settings.markdown_privacy_mode = input.settings.markdown_privacy_mode;
     updated_settings.start_in_background = input.settings.start_in_background;
+    updated_settings.browser_history_enabled = input.settings.browser_history_enabled;
+    updated_settings.browser_history_poll_interval_ms =
+        input.settings.browser_history_poll_interval_ms;
+    updated_settings.browser_history_redact_query = input.settings.browser_history_redact_query;
 
     state.update_settings_snapshot(updated_settings);
 
@@ -1179,6 +1313,26 @@ fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate)
             "false"
         },
     )?;
+    datastores.set_setting(
+        "browserHistoryEnabled",
+        if settings.browser_history_enabled {
+            "true"
+        } else {
+            "false"
+        },
+    )?;
+    datastores.set_setting(
+        "browserHistoryPollIntervalMs",
+        &settings.browser_history_poll_interval_ms.to_string(),
+    )?;
+    datastores.set_setting(
+        "browserHistoryRedactQuery",
+        if settings.browser_history_redact_query {
+            "true"
+        } else {
+            "false"
+        },
+    )?;
     Ok(())
 }
 
@@ -1410,6 +1564,9 @@ fn cached_setting_value(state: &State<'_, Arc<AppState>>, key: &str) -> Option<S
         "summaryTone" => Some(settings.summary_tone),
         "markdownPrivacyMode" => Some(settings.markdown_privacy_mode.to_string()),
         "startInBackground" => Some(settings.start_in_background.to_string()),
+        "browserHistoryEnabled" => Some(settings.browser_history_enabled.to_string()),
+        "browserHistoryPollIntervalMs" => Some(settings.browser_history_poll_interval_ms.to_string()),
+        "browserHistoryRedactQuery" => Some(settings.browser_history_redact_query.to_string()),
         "trackingEnabled" => Some(state.tracking_enabled.load(Ordering::Relaxed).to_string()),
         _ => None,
     }
@@ -1476,6 +1633,17 @@ fn apply_setting_to_snapshot(settings: &mut AppSettings, key: &str, value: &str)
         }
         "startInBackground" => {
             settings.start_in_background = value == "true";
+        }
+        "browserHistoryEnabled" => {
+            settings.browser_history_enabled = value == "true";
+        }
+        "browserHistoryPollIntervalMs" => {
+            if let Ok(parsed) = value.parse::<i64>() {
+                settings.browser_history_poll_interval_ms = parsed.max(1000);
+            }
+        }
+        "browserHistoryRedactQuery" => {
+            settings.browser_history_redact_query = value == "true";
         }
         _ => {}
     }

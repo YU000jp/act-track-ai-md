@@ -120,6 +120,7 @@ const COMMAND_LABELS: Partial<Record<string, string>> = {
   get_settings: "Settings",
   get_tracking_status: "Tracking status",
   get_dashboard_bootstrap: "Dashboard bootstrap",
+  get_browser_visits: "Browser visits",
   set_setting: "Update setting",
   set_settings: "Save settings",
   get_setting: "Read setting",

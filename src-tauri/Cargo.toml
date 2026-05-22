@@ -3,6 +3,11 @@ name = "act-track-ai-md"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.77"
+default-run = "act-track-ai-md"
+
+[[bin]]
+name = "act-track-ai-md-native-host"
+path = "src/native_host.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

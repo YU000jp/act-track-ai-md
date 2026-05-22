@@ -75,6 +75,18 @@ pub struct WindowSnapshot {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BrowserVisit {
+    pub browser: String,
+    pub profile: String,
+    pub url: String,
+    pub title: String,
+    pub visited_at: i64,
+    pub last_visit_at: i64,
+    pub source: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActivitySample {
     pub id: i64,
     pub timestamp: i64,

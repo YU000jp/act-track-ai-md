@@ -61,6 +61,9 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
         summaryTone: currentSettings.summaryTone,
         markdownPrivacyMode: currentSettings.markdownPrivacyMode,
         startInBackground: currentSettings.startInBackground,
+        browserHistoryEnabled: currentSettings.browserHistoryEnabled,
+        browserHistoryPollIntervalMs: currentSettings.browserHistoryPollIntervalMs,
+        browserHistoryRedactQuery: currentSettings.browserHistoryRedactQuery,
       };
 
       await props.rpc.setSettings({ settings: settingsToSave, geminiApiKey: geminiKey || undefined });

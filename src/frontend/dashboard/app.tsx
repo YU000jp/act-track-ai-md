@@ -12,12 +12,13 @@ import { StatisticsPanel } from "./StatisticsPanel";
 import { TodayPanel } from "./TodayPanel";
 import { ToastRegion } from "./ToastRegion";
 import { useDashboardController } from "./useDashboardController";
-import { subscribeGeminiApiKeySettings } from "./tauri-bridge";
+import { subscribeBrowserHistoryUpdates, subscribeGeminiApiKeySettings } from "./tauri-bridge";
 
 type AppProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
+  subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
 };
 
 function describeTrackingState(status: TrackingStatus): string {
@@ -27,13 +28,13 @@ function describeTrackingState(status: TrackingStatus): string {
 
   switch (status.state) {
     case "productive":
-      return "Tracking productive";
+      return "Productive";
     case "distracted":
-      return "Tracking distracted";
+      return "Distracted";
     case "idle":
-      return "Tracking idle";
+      return "Idle";
     default:
-      return "Tracking live";
+      return "Active";
   }
 }
 
@@ -66,6 +67,7 @@ export function App(props: AppProps) {
     rpc: props.rpc,
     subscribeTrackingStatus: props.subscribeTrackingStatus,
     subscribeGeminiApiKeySettings: props.subscribeGeminiApiKeySettings ?? subscribeGeminiApiKeySettings,
+    subscribeBrowserHistoryUpdates: props.subscribeBrowserHistoryUpdates ?? subscribeBrowserHistoryUpdates,
   });
 
   const trackingStatus = controller.trackingStatus;
@@ -81,11 +83,8 @@ export function App(props: AppProps) {
         <div class="brand-block">
           <img class="brand-mark" src={brandMarkUrl} alt="ActTrack icon" />
           <div class="brand-copy">
-            <p class="eyebrow">ActTrack AI MD</p>
             <h1>{controller.dashboardTitle}</h1>
-            <p class="hero-description">
-              A focused control center for tracking, summaries, and memory operations.
-            </p>
+            <p class="hero-description">Overview first. Management stays grouped behind the main navigation.</p>
           </div>
         </div>
 
@@ -101,7 +100,7 @@ export function App(props: AppProps) {
             tone={controller.memoryStatus()?.enabled ? "accent" : "neutral"}
           />
           <DashboardStatusChip
-            label="Auto classify"
+            label="Automation"
             value={describeAutoClassificationStatus(settings().geminiApiKeyConfigured)}
             tone={settings().geminiApiKeyConfigured ? "success" : "warning"}
           />
@@ -114,9 +113,6 @@ export function App(props: AppProps) {
           >
             {describeTrackingToggleLabel(trackingStatus(), isTrackingTogglePending())}
           </button>
-          {controller.errorState() ? (
-            <DashboardStatusChip label="Sync" value="Needs attention" tone="danger" />
-          ) : null}
         </div>
       </header>
 
@@ -126,19 +122,16 @@ export function App(props: AppProps) {
       <main class="dashboard-workspace">
         <div class="workspace-header">
           <DashboardTabs activeTab={controller.activeTab()} onChange={controller.setActiveTab} />
-          <p class="workspace-hint">
-            {controller.isHydrated()
-              ? controller.errorState()
-                ? "Showing fallback dashboard data."
-                : "Live snapshot ready"
-              : "Loading dashboard snapshot..."}
-          </p>
+          {!controller.isHydrated() && !controller.errorState() ? <p class="workspace-hint">Loading dashboard snapshot...</p> : null}
+          {controller.errorState() ? <p class="workspace-hint workspace-hint-error">Showing fallback dashboard data.</p> : null}
         </div>
 
         <TodayPanel
           active={controller.activeTab() === "today"}
           todayStats={controller.todayStats()}
           topApps={controller.topApps()}
+          browserVisits={controller.browserVisits()}
+          browserHistoryRedactQuery={settings().browserHistoryRedactQuery}
           recentWindows={controller.recentWindows()}
           summaryFeedback={controller.summaryFeedback()}
           summaryFeedbackStatus={controller.summaryFeedbackStatus()}
@@ -147,7 +140,7 @@ export function App(props: AppProps) {
           onSaveSummaryFeedback={() => void controller.saveSummaryFeedback()}
           onCreateRuleFromWindow={(sample) => {
             controller.classification.beginCreateRuleFromWindow(sample);
-            controller.setActiveTab("classification");
+            controller.setActiveTab("rules");
           }}
         />
 
@@ -178,7 +171,7 @@ export function App(props: AppProps) {
         />
 
         <ClassificationPanel
-          active={controller.activeTab() === "classification"}
+          active={controller.activeTab() === "rules"}
           controller={controller.classification}
         />
       </main>

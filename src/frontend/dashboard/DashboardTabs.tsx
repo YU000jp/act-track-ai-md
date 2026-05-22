@@ -5,69 +5,61 @@ type DashboardTabsProps = {
   onChange: (tab: TabKey) => void;
 };
 
+type DashboardTabItem = {
+  key: TabKey;
+  id: string;
+  panelId: string;
+  label: string;
+  hint: string;
+};
+
+type DashboardTabGroup = {
+  label: string;
+  tabs: DashboardTabItem[];
+};
+
+const TAB_GROUPS: DashboardTabGroup[] = [
+  {
+    label: "Overview",
+    tabs: [
+      { key: "today", id: "tab-today", panelId: "panel-today", label: "Today", hint: "snapshot" },
+      { key: "statistics", id: "tab-statistics", panelId: "panel-statistics", label: "Statistics", hint: "range" },
+    ],
+  },
+  {
+    label: "Management",
+    tabs: [
+      { key: "rules", id: "tab-rules", panelId: "panel-rules", label: "Rules", hint: "automation" },
+      { key: "memory", id: "tab-memory", panelId: "panel-memory", label: "Memory", hint: "notes" },
+      { key: "settings", id: "tab-settings", panelId: "panel-settings", label: "Settings", hint: "prefs" },
+    ],
+  },
+];
+
 export function DashboardTabs(props: DashboardTabsProps) {
   return (
     <nav id="tab-bar" class="tab-rail" role="tablist" aria-label="Dashboard sections">
-      <button
-        id="tab-today"
-        class={`tab-btn ${props.activeTab === "today" ? "active" : ""}`}
-        type="button"
-        role="tab"
-        aria-selected={props.activeTab === "today"}
-        aria-controls="panel-today"
-        onClick={() => props.onChange("today")}
-      >
-        <span class="tab-label">Today</span>
-        <span class="tab-hint">snapshot</span>
-      </button>
-      <button
-        id="tab-statistics"
-        class={`tab-btn ${props.activeTab === "statistics" ? "active" : ""}`}
-        type="button"
-        role="tab"
-        aria-selected={props.activeTab === "statistics"}
-        aria-controls="panel-statistics"
-        onClick={() => props.onChange("statistics")}
-      >
-        <span class="tab-label">Statistics</span>
-        <span class="tab-hint">composition</span>
-      </button>
-      <button
-        id="tab-classification"
-        class={`tab-btn ${props.activeTab === "classification" ? "active" : ""}`}
-        type="button"
-        role="tab"
-        aria-selected={props.activeTab === "classification"}
-        aria-controls="panel-classification"
-        onClick={() => props.onChange("classification")}
-      >
-        <span class="tab-label">Classification</span>
-        <span class="tab-hint">rules</span>
-      </button>
-      <button
-        id="tab-memory"
-        class={`tab-btn ${props.activeTab === "memory" ? "active" : ""}`}
-        type="button"
-        role="tab"
-        aria-selected={props.activeTab === "memory"}
-        aria-controls="panel-memory"
-        onClick={() => props.onChange("memory")}
-      >
-        <span class="tab-label">Memory</span>
-        <span class="tab-hint">notes</span>
-      </button>
-      <button
-        id="tab-settings"
-        class={`tab-btn ${props.activeTab === "settings" ? "active" : ""}`}
-        type="button"
-        role="tab"
-        aria-selected={props.activeTab === "settings"}
-        aria-controls="panel-settings"
-        onClick={() => props.onChange("settings")}
-      >
-        <span class="tab-label">Settings</span>
-        <span class="tab-hint">control plane</span>
-      </button>
+      {TAB_GROUPS.map((group) => (
+        <div class="tab-group" role="presentation">
+          <p class="tab-group-label">{group.label}</p>
+          <div class="tab-group-rail">
+            {group.tabs.map((tab) => (
+              <button
+                id={tab.id}
+                class={`tab-btn ${props.activeTab === tab.key ? "active" : ""}`}
+                type="button"
+                role="tab"
+                aria-selected={props.activeTab === tab.key}
+                aria-controls={tab.panelId}
+                onClick={() => props.onChange(tab.key)}
+              >
+                <span class="tab-label">{tab.label}</span>
+                <span class="tab-hint">{tab.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </nav>
   );
 }

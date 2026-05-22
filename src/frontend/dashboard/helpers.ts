@@ -27,6 +27,21 @@ export function formatActivityTime(timestamp: number): string {
   });
 }
 
+export function formatBrowserVisitUrl(url: string, redactQuery: boolean): string {
+  if (!redactQuery) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.split("?")[0]?.split("#")[0] ?? url;
+  }
+}
+
 export function formatPercent(part: number, whole: number): number {
   if (whole <= 0) {
     return 0;

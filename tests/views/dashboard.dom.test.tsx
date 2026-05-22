@@ -11,10 +11,12 @@ import {
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
 import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
-import { DEFAULT_SETTINGS, type ActivitySample, type AppSettings, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
+const dashboardTabsPath = resolve(process.cwd(), "src/frontend/dashboard/DashboardTabs.tsx");
+const dashboardRulesPath = resolve(process.cwd(), "src/frontend/dashboard/ClassificationPanel.tsx");
 const dashboardSettingsPath = resolve(process.cwd(), "src/frontend/dashboard/SettingsPanel.tsx");
 
 const BASE_SETTINGS: AppSettings = {
@@ -32,6 +34,9 @@ const BASE_SETTINGS: AppSettings = {
   summaryTone: "reflective",
   markdownPrivacyMode: true,
   startInBackground: true,
+  browserHistoryEnabled: true,
+  browserHistoryPollIntervalMs: 15_000,
+  browserHistoryRedactQuery: true,
 };
 
 afterEach(() => {
@@ -59,6 +64,17 @@ function createDashboardRpcStub(): DashboardClient {
     topApps: [{ processName: "code", durationMs: 3_600_000, category: "productive" }],
     aiSummary: "Draft summary",
   };
+  const browserVisits: BrowserVisit[] = [
+    {
+      browser: "chrome",
+      profile: "Default",
+      url: "https://example.com/path?q=1",
+      title: "Example",
+      visitedAt: Date.now(),
+      lastVisitAt: Date.now(),
+      source: "history-db",
+    },
+  ];
   const bootstrap: DashboardBootstrapSnapshot = {
     todaySummary: {
       trackedMs: summary.totalTrackedMs,
@@ -67,6 +83,7 @@ function createDashboardRpcStub(): DashboardClient {
       neutralMs: summary.neutralMs,
     },
     topApps: summary.topApps,
+    browserVisits,
     statisticsSnapshot: {
       rangeDays: 7,
       startDate: "2026-05-13",
@@ -151,6 +168,7 @@ function createDashboardRpcStub(): DashboardClient {
       neutralMs: summary.neutralMs,
     })),
     getTopApps: vi.fn(async () => summary.topApps),
+    getBrowserVisits: vi.fn(async () => browserVisits),
     getStatisticsSnapshot: vi.fn(async (rangeDays: number = 7) => ({
       rangeDays,
       startDate: rangeDays === 14 ? "2026-05-06" : rangeDays === 30 ? "2026-04-20" : "2026-05-13",
@@ -316,7 +334,7 @@ describe("dashboard shell", () => {
     expect(root?.children).toHaveLength(0);
     expect(parsedDocument.querySelector("#tab-bar")).toBeNull();
     expect(parsedDocument.querySelector("#panel-today")).toBeNull();
-    expect(parsedDocument.querySelector("#panel-classification")).toBeNull();
+    expect(parsedDocument.querySelector("#panel-rules")).toBeNull();
     expect(parsedDocument.querySelector("#panel-settings")).toBeNull();
     expect(parsedDocument.querySelector("#summary-feedback")).toBeNull();
   });
@@ -340,6 +358,8 @@ describe("dashboard shell", () => {
     expect(controller.activeTab()).toBe("today");
     controller.setActiveTab("statistics");
     expect(controller.activeTab()).toBe("statistics");
+    controller.setActiveTab("rules");
+    expect(controller.activeTab()).toBe("rules");
     controller.setActiveTab("memory");
     expect(controller.activeTab()).toBe("memory");
 
@@ -426,15 +446,25 @@ describe("dashboard shell", () => {
 
   it("renders a header toggle for tracking and prevents duplicate clicks while pending", async () => {
     const appSource = readFileSync(dashboardAppPath, "utf8");
+    const tabsSource = readFileSync(dashboardTabsPath, "utf8");
+    const rulesSource = readFileSync(dashboardRulesPath, "utf8");
     const settingsSource = readFileSync(dashboardSettingsPath, "utf8");
 
     expect(appSource).toContain("tracking-toggle-btn");
     expect(appSource).toContain("Pause tracking");
     expect(appSource).toContain("Resume tracking");
     expect(appSource).toContain("aria-busy={isTrackingTogglePending()}");
-    expect(appSource).toContain("Auto classify");
+    expect(appSource).toContain("Overview first. Management stays grouped behind the main navigation.");
+    expect(appSource).not.toContain("Live snapshot ready");
+    expect(appSource).not.toContain("Sync");
+    expect(tabsSource).toContain("Overview");
+    expect(tabsSource).toContain("Management");
+    expect(tabsSource).toContain("Rules");
+    expect(tabsSource).toContain("tab-rules");
+    expect(rulesSource).toContain('id="panel-rules"');
+    expect(rulesSource).toContain('aria-labelledby="tab-rules"');
     expect(appSource).toContain("Rules + cache + Gemini");
-    expect(settingsSource).toContain("Automatic classification order:");
+    expect(settingsSource).toContain("Rule evaluation order:");
     expect(settingsSource).toContain("Save a Gemini API key to enable the Gemini step after rules and cache.");
   });
 
@@ -524,6 +554,7 @@ describe("dashboard shell", () => {
       expect(controller.errorState()).not.toBeNull();
       expect(controller.todayStats().trackedMs).toBe(fallbackSummary.totalTrackedMs);
       expect(controller.topApps()[0]?.processName).toBe("code");
+      expect(controller.browserVisits()[0]?.browser).toBe("chrome");
       expect(controller.settings().markdownExportPath).toBe("/tmp/fallback");
       expect(controller.trackingStatus().running).toBe(true);
       expect(controller.memoryStatus()?.total).toBe(2);

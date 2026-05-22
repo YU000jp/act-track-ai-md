@@ -5,6 +5,8 @@ ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-b
 ## Features
 
 - Foreground window tracking
+- Local Chrome, Edge, and Firefox browser history collection
+- Native messaging browser bridge support for extension-fed visits
 - Rule-first classification with cache and Gemini fallback
 - SQLite activity log and daily summaries
 - Native tray icon and notifications with Tauri
@@ -88,3 +90,5 @@ pnpm run tauri:build
 - `pnpm run dev:frontend` starts the local Vite dashboard server.
 - Local data is stored under the app data directory.
 - Non-secret settings are persisted in SQLite. The Gemini API key is stored in the OS credential store.
+- Browser history capture is opt-in and currently targets Chrome, Edge, and Firefox on Windows.
+- The native messaging bridge is supported through `browser-extensions/native-messaging/`.

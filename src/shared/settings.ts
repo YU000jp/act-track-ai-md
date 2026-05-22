@@ -76,6 +76,19 @@ export function loadAppSettings(
       getSetting("startInBackground"),
       DEFAULT_SETTINGS.startInBackground,
     ),
+    browserHistoryEnabled: parseBooleanSetting(
+      getSetting("browserHistoryEnabled"),
+      DEFAULT_SETTINGS.browserHistoryEnabled,
+    ),
+    browserHistoryPollIntervalMs: parseNumberSetting(
+      getSetting("browserHistoryPollIntervalMs"),
+      DEFAULT_SETTINGS.browserHistoryPollIntervalMs,
+      1000,
+    ),
+    browserHistoryRedactQuery: parseBooleanSetting(
+      getSetting("browserHistoryRedactQuery"),
+      DEFAULT_SETTINGS.browserHistoryRedactQuery,
+    ),
   };
 }
 

@@ -11,6 +11,16 @@ export type WindowSnapshot = {
   windowTitle: string;
 };
 
+export type BrowserVisit = {
+  browser: "chrome" | "edge";
+  profile: string;
+  url: string;
+  title: string;
+  visitedAt: number;
+  lastVisitAt: number;
+  source: "history-db";
+};
+
 export type ClassificationRuleDraft = {
   processNamePattern: string;
   windowTitlePattern: string;
@@ -114,6 +124,7 @@ export type DashboardBootstrapSnapshot = {
     neutralMs: number;
   };
   topApps: Array<{ processName: string; durationMs: number; category: ActivityCategory }>;
+  browserVisits: BrowserVisit[];
   statisticsSnapshot: StatisticsSnapshot;
   classificationRules: ClassificationRuleRecord[];
   settings: AppSettings;
@@ -137,6 +148,7 @@ export type DashboardRPC = {
       neutralMs: number;
     }>;
     getTopApps: () => Promise<Array<{ processName: string; durationMs: number; category: ActivityCategory }>>;
+    getBrowserVisits: (limit?: number) => Promise<BrowserVisit[]>;
     getStatisticsSnapshot: (rangeDays?: StatisticsRange) => Promise<StatisticsSnapshot>;
     getTimeline: (date: string) => Promise<ActivitySample[]>;
     getDailySummary: (date: string) => Promise<DailySummary | null>;
@@ -181,6 +193,9 @@ export type AppSettings = {
   summaryTone: string;
   markdownPrivacyMode: boolean;
   startInBackground: boolean;
+  browserHistoryEnabled: boolean;
+  browserHistoryPollIntervalMs: number;
+  browserHistoryRedactQuery: boolean;
 };
 
 export type AppSettingsUpdate = Omit<AppSettings, "geminiApiKeyConfigured">;
@@ -200,4 +215,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryTone: "encouraging",
   markdownPrivacyMode: false,
   startInBackground: true,
+  browserHistoryEnabled: false,
+  browserHistoryPollIntervalMs: 15000,
+  browserHistoryRedactQuery: true,
 };

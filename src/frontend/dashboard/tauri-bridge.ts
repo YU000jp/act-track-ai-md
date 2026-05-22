@@ -16,6 +16,7 @@ let consoleAttached = false;
 let consoleUnlisten: (() => void) | null = null;
 let rpcClient: DashboardClient | null = null;
 const GEMINI_API_KEY_SETTINGS_EVENT = "gemini-api-key-settings-requested";
+const BROWSER_HISTORY_UPDATED_EVENT = "browser-history-updated";
 
 async function invokeDashboard<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -45,6 +46,7 @@ export async function installDashboardRPC(): Promise<DashboardClient> {
   rpcClient = {
     getTodaySummary: () => invokeDashboard("get_today_summary"),
     getTopApps: () => invokeDashboard("get_top_apps"),
+    getBrowserVisits: (limit) => invokeDashboard("get_browser_visits", limit == null ? undefined : { limit }),
     getStatisticsSnapshot: (rangeDays) =>
       invokeDashboard("get_statistics_snapshot", rangeDays == null ? undefined : { input: { rangeDays } }),
     getTimeline: (date) => invokeDashboard("get_timeline", { date }),
@@ -85,6 +87,14 @@ export async function subscribeTrackingStatus(
 
 export async function subscribeGeminiApiKeySettings(listener: () => void): Promise<() => void> {
   return listen(GEMINI_API_KEY_SETTINGS_EVENT, () => {
+    listener();
+  });
+}
+
+export async function subscribeBrowserHistoryUpdates(
+  listener: () => void,
+): Promise<() => void> {
+  return listen(BROWSER_HISTORY_UPDATED_EVENT, () => {
     listener();
   });
 }

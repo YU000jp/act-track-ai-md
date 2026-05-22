@@ -31,6 +31,16 @@ describe("app error normalization", () => {
     expect(describeAppError(payload)).toBe("Save settings: save failed");
   });
 
+  it("formats browser history commands with a readable label", () => {
+    const payload = AppErrorSchema.parse({
+      kind: "database",
+      command: "get_browser_visits",
+      message: "read failed",
+    });
+
+    expect(describeAppError(payload)).toBe("Browser visits: read failed");
+  });
+
   it("normalizes unknown values to a fallback error", () => {
     const payload = normalizeAppError(null);
 

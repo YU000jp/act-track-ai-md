@@ -1,8 +1,8 @@
 import { For, Show } from "solid-js";
+import type { BrowserVisit, ActivitySample } from "../../shared/types";
 import { DashboardMetricCard } from "./DashboardMetricCard";
 import { DashboardSurface } from "./DashboardSurface";
-import { formatActivityTime, formatDuration, formatPercent } from "./helpers";
-import type { ActivitySample } from "../../shared/types";
+import { formatActivityTime, formatBrowserVisitUrl, formatDuration, formatPercent } from "./helpers";
 import type { TodayStats, TopApp } from "./types";
 import { SummaryFeedbackSection } from "./SummaryFeedbackSection";
 
@@ -10,6 +10,8 @@ type TodayPanelProps = {
   active: boolean;
   todayStats: TodayStats;
   topApps: TopApp[];
+  browserVisits: BrowserVisit[];
+  browserHistoryRedactQuery: boolean;
   recentWindows: ActivitySample[];
   summaryFeedback: string;
   summaryFeedbackStatus: string;
@@ -38,6 +40,7 @@ function getAppShare(durationMs: number, totalMs: number): string {
 export function TodayPanel(props: TodayPanelProps) {
   const totalTopAppsMs = () => props.topApps.reduce((total, app) => total + app.durationMs, 0);
   const recentWindows = () => [...props.recentWindows].slice(-6).reverse();
+  const browserVisits = () => [...props.browserVisits].slice(0, 6);
 
   return (
     <section id="panel-today" class={`panel panel-today ${props.active ? "active" : ""}`} aria-hidden={!props.active} role="tabpanel" aria-labelledby="tab-today">
@@ -45,7 +48,7 @@ export function TodayPanel(props: TodayPanelProps) {
         <DashboardSurface
           eyebrow="Snapshot"
           title="Today's focus"
-          description="A compact view of tracked time across the current day."
+          description="Current-day totals at a glance."
           class="surface-hero"
         >
           <div class="metric-grid">
@@ -79,12 +82,12 @@ export function TodayPanel(props: TodayPanelProps) {
             <div class="summary-band-item">
               <span class="summary-band-label">Focus ratio</span>
               <strong>{getFocusRatio(props.todayStats)}</strong>
-              <span>Productive minutes relative to the total snapshot.</span>
+              <span>Productive time versus the total.</span>
             </div>
             <div class="summary-band-item">
               <span class="summary-band-label">Tracked state</span>
               <strong>{props.todayStats.trackedMs > 0 ? "Activity recorded" : "Waiting for data"}</strong>
-              <span>{props.todayStats.trackedMs > 0 ? "Snapshot is ready to review." : "No activity has been captured yet."}</span>
+              <span>{props.todayStats.trackedMs > 0 ? "Ready to review." : "Waiting for activity."}</span>
             </div>
           </div>
         </DashboardSurface>
@@ -92,7 +95,7 @@ export function TodayPanel(props: TodayPanelProps) {
         <DashboardSurface
           eyebrow="Activity"
           title="Top apps"
-          description="The apps consuming the most tracked time right now."
+          description="Highest-tracked apps today."
           class="surface-hero"
         >
           <Show when={props.topApps.length > 0} fallback={<div class="empty-state">No activity tracked yet.</div>}>
@@ -129,7 +132,7 @@ export function TodayPanel(props: TodayPanelProps) {
         <DashboardSurface
           eyebrow="Detail"
           title="Recent windows"
-          description="The latest foreground samples, including the captured window title."
+          description="Recent foreground samples."
           class="surface-hero"
         >
           <Show when={props.recentWindows.length > 0} fallback={<div class="empty-state">No window samples tracked yet.</div>}>
@@ -155,6 +158,40 @@ export function TodayPanel(props: TodayPanelProps) {
                     </div>
                   </li>
                 )}
+              </For>
+            </ul>
+          </Show>
+        </DashboardSurface>
+
+        <DashboardSurface
+          eyebrow="Browser"
+          title="Recent browser visits"
+          description="Latest local browser visits."
+          class="surface-hero"
+        >
+          <Show when={props.browserVisits.length > 0} fallback={<div class="empty-state">No browser history collected yet.</div>}>
+            <ul class="app-list app-list-compact">
+              <For each={browserVisits()}>
+                {(visit) => {
+                  const displayUrl = formatBrowserVisitUrl(visit.url, props.browserHistoryRedactQuery);
+                  return (
+                    <li class="app-item app-item-compact">
+                      <div class="app-meta">
+                        <span class="app-dot neutral"></span>
+                        <div class="app-copy">
+                          <strong class="app-name">{visit.title || displayUrl}</strong>
+                          <span class="app-category">
+                            {visit.browser} / {visit.profile}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="app-stats">
+                        <span class="app-duration">{formatActivityTime(visit.visitedAt)}</span>
+                        <span class="app-share">{displayUrl}</span>
+                      </div>
+                    </li>
+                  );
+                }}
               </For>
             </ul>
           </Show>

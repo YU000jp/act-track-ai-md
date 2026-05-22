@@ -2,6 +2,8 @@
 
 mod app;
 mod app_meta;
+mod browser;
+mod browser_native;
 mod classifier;
 mod db;
 mod error;
@@ -24,13 +26,13 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_log::{Target, TargetKind};
 
 use app::{
-    create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_daily_summary,
-    get_dashboard_bootstrap, get_memory_snapshot, get_memory_status, get_setting, get_settings,
-    get_statistics_snapshot, get_timeline, get_today_summary, get_top_apps, get_tracking_status,
-    list_memories, load_tracking_enabled, pin_memory, save_classification_rule,
+    create_app_state, emit_tracking_status, forget_memory, generate_summary_now, get_browser_visits,
+    get_daily_summary, get_dashboard_bootstrap, get_memory_snapshot, get_memory_status, get_setting,
+    get_settings, get_statistics_snapshot, get_timeline, get_today_summary, get_top_apps,
+    get_tracking_status, list_memories, load_tracking_enabled, pin_memory, save_classification_rule,
     get_classification_rules, delete_classification_rule, set_classification_rule_enabled,
-    move_classification_rule, reorder_classification_rule,
-    save_summary_feedback, set_setting, set_settings, set_tracking_enabled_on_state, toggle_tracking,
+    move_classification_rule, reorder_classification_rule, save_summary_feedback, set_setting,
+    set_settings, set_tracking_enabled_on_state, toggle_tracking,
 };
 use app_meta::PACKAGE_NAME;
 use db::Datastores;
@@ -56,6 +58,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_today_summary,
             get_top_apps,
+            get_browser_visits,
             get_statistics_snapshot,
             get_timeline,
             get_daily_summary,
@@ -169,6 +172,8 @@ fn main() {
 
             let app_handle = app.handle().clone();
             app::start_background_loop(app_handle.clone(), state.clone());
+            app::start_browser_history_loop(app_handle.clone(), state.clone());
+            app::start_browser_native_inbox_loop(app_handle.clone(), state.clone());
 
             let dashboard_item =
                 MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;

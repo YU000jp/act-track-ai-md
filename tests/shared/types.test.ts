@@ -3,6 +3,7 @@ import {
   ACTIVITY_CATEGORIES,
   type ActivityCategory,
   type ActivitySample,
+  type BrowserVisit,
   type ClassificationResult,
   type DailySummary,
   type StatisticsSnapshot,
@@ -45,6 +46,21 @@ describe("shared types", () => {
       windowTitle: "YouTube",
     };
     expect(snap.processName).toBe("chrome.exe");
+  });
+
+  it("BrowserVisit models browser history rows", () => {
+    const visit: BrowserVisit = {
+      browser: "chrome",
+      profile: "Default",
+      url: "https://example.com/path?q=1",
+      title: "Example",
+      visitedAt: 1_700_000_000_000,
+      lastVisitAt: 1_700_000_010_000,
+      source: "history-db",
+    };
+
+    expect(visit.browser).toBe("chrome");
+    expect(visit.source).toBe("history-db");
   });
 
   it("DailySummary has all aggregate fields", () => {
@@ -94,6 +110,9 @@ describe("shared types", () => {
     expect(mod.DEFAULT_SETTINGS.summaryTone).toBe("encouraging");
     expect(mod.DEFAULT_SETTINGS.markdownPrivacyMode).toBe(false);
     expect(mod.DEFAULT_SETTINGS.startInBackground).toBe(true);
+    expect(mod.DEFAULT_SETTINGS.browserHistoryEnabled).toBe(false);
+    expect(mod.DEFAULT_SETTINGS.browserHistoryPollIntervalMs).toBe(15000);
+    expect(mod.DEFAULT_SETTINGS.browserHistoryRedactQuery).toBe(true);
     expect(mod.DEFAULT_SETTINGS.geminiApiKeyConfigured).toBe(false);
   });
 });

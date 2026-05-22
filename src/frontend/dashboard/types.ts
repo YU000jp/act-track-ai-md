@@ -18,7 +18,7 @@ export type RangeStatistics = StatisticsSnapshot;
 export type StatisticsWindow = StatisticsRange;
 
 export type ToastKind = "error" | "info" | "success";
-export type TabKey = "today" | "statistics" | "classification" | "memory" | "settings";
+export type TabKey = "today" | "statistics" | "rules" | "memory" | "settings";
 
 export type DashboardErrorState = {
   context: string;

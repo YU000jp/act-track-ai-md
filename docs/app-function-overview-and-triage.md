@@ -15,7 +15,15 @@ The app is a Windows desktop tracker with a Tauri shell, a SolidJS dashboard, SQ
 - Skips tracking while the user is idle beyond the configured timeout.
 - Records process name, window title, category, label, timestamp, and duration.
 
-### 2. Activity classification
+### 2. Browser history capture
+
+- Opt-in collection for Chrome, Edge, and Firefox history on Windows.
+- Native messaging inbox support for extension-fed browser visit snapshots.
+- Reads local browser History SQLite databases and keeps the data separate from foreground duration samples.
+- Stores browser, profile, URL, title, visited time, last-visit time, and source metadata.
+- Refreshes the dashboard with a lightweight local history snapshot when new visits are imported.
+
+### 3. Activity classification
 
 Classification follows this order:
 
@@ -33,7 +41,7 @@ Custom rules are JSON entries with:
 - `category`
 - `label`
 
-### 3. Today dashboard
+### 4. Today dashboard
 
 The Today tab shows:
 
@@ -49,7 +57,7 @@ It also exposes actions to:
 - generate a summary immediately
 - save edited feedback back into the local store
 
-### 4. Range statistics
+### 5. Range statistics
 
 The Statistics tab shows:
 
@@ -63,7 +71,7 @@ The Statistics tab shows:
 
 The range snapshot is backend-aggregated rather than reconstructed in the UI.
 
-### 5. Daily summaries
+### 6. Daily summaries
 
 Daily summaries are stored locally and may include:
 
@@ -83,7 +91,7 @@ If a Gemini API key is present, the summary prompt uses:
 - the selected tone
 - recent memory context
 
-### 6. Markdown export
+### 7. Markdown export
 
 Each day can be exported as Markdown.
 
@@ -94,7 +102,7 @@ Export behavior:
 - Hides window titles when `markdownPrivacyMode` is enabled.
 - Runs on day rollover and after manual summary generation.
 
-### 7. Memory console
+### 8. Memory console
 
 The memory store keeps lightweight local notes:
 
@@ -111,7 +119,7 @@ The dashboard can:
 
 Memory is used by the summary pipeline as local context.
 
-### 8. Settings and runtime controls
+### 9. Settings and runtime controls
 
 The Settings tab exposes:
 
@@ -128,10 +136,13 @@ The Settings tab exposes:
 - notifications toggle
 - auto-start
 - start-in-background behavior
+- browser history collection toggle
+- browser history poll interval
+- browser history redaction toggle
 
 Settings that affect launcher behavior may require a restart to take effect.
 
-### 9. Tray and window behavior
+### 10. Tray and window behavior
 
 - The tray menu opens the dashboard, toggles tracking, or quits the app.
 - Closing the main window hides it instead of exiting.
@@ -143,6 +154,8 @@ The runtime keeps data local:
 
 - classification cache: SQLite
 - activity log and summaries: SQLite
+- browser history log: SQLite
+- native messaging inbox: JSONL cursor + SQLite ingest
 - memory store: SQLite
 - Gemini API key: OS credential store
 
