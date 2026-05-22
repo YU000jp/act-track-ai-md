@@ -6,6 +6,23 @@ use crate::types::{ActivityCategory, ClassificationResult};
 const VALID_CATEGORIES: [&str; 3] = ["productive", "distraction", "neutral"];
 const CLASSIFICATION_MAX_OUTPUT_TOKENS: i64 = 64;
 
+pub fn format_gemini_api_error(
+    status: reqwest::StatusCode,
+    retry_after: Option<&str>,
+) -> String {
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        match retry_after {
+            Some(value) if !value.trim().is_empty() => {
+                format!("Gemini API rate limited (429 Too Many Requests). Retry-After: {value}.")
+            }
+            _ => "Gemini API rate limited (429 Too Many Requests). Please wait and try again."
+                .to_string(),
+        }
+    } else {
+        format!("Gemini API error: {status}")
+    }
+}
+
 pub fn build_classification_prompt(process_name: &str, window_title: &str) -> (String, String) {
     let system =
         "You are a productivity classifier. Classify the activity from a process name and window title. Return JSON with category, label, and confidence."
@@ -90,7 +107,11 @@ pub fn classify_with_gemini(
         .map_err(|error| error.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("Gemini API error: {}", response.status()));
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok());
+        return Err(format_gemini_api_error(response.status(), retry_after));
     }
 
     let data: serde_json::Value = response.json().map_err(|error| error.to_string())?;
@@ -109,4 +130,17 @@ pub fn classify_with_gemini(
     let mut result = parse_classification_response(text)?;
     result.source = "gemini".to_string();
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_rate_limit_errors_with_retry_after_when_present() {
+        let message = format_gemini_api_error(reqwest::StatusCode::TOO_MANY_REQUESTS, Some("60"));
+
+        assert!(message.contains("rate limited"));
+        assert!(message.contains("Retry-After: 60"));
+    }
 }

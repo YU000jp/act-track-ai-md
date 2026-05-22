@@ -324,9 +324,13 @@ fn call_gemini_for_summary(
         })?;
 
     if !response.status().is_success() {
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok());
         return Err(AppError::external_api_for(
             command,
-            format!("Gemini API error: {}", response.status()),
+            crate::gemini::format_gemini_api_error(response.status(), retry_after),
         ));
     }
 
