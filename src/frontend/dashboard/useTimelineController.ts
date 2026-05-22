@@ -1,10 +1,11 @@
-import { createSignal } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import type { ActivitySample } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
-import { getCurrentUtcDateString } from "./helpers";
+import { createSubscriptionRegistrar, getCurrentUtcDateString } from "./helpers";
 
 type UseTimelineControllerProps = {
   rpc: DashboardClient;
+  subscribeActivityLogUpdates?: (listener: () => void) => Promise<() => void>;
 };
 
 export type TimelineController = {
@@ -15,6 +16,7 @@ export type TimelineController = {
 
 export function useTimelineController(props: UseTimelineControllerProps): TimelineController {
   const [recentWindows, setRecentWindows] = createSignal<ActivitySample[]>([]);
+  const registerSubscriptionDispose = createSubscriptionRegistrar();
 
   function hydrateTimeline(samples: ActivitySample[] | null | undefined): void {
     setRecentWindows(samples ?? []);
@@ -29,6 +31,18 @@ export function useTimelineController(props: UseTimelineControllerProps): Timeli
       console.warn("[dashboard] failed to load recent window timeline", error);
     }
   }
+
+  onMount(() => {
+    if (!props.subscribeActivityLogUpdates) {
+      return;
+    }
+
+    void props.subscribeActivityLogUpdates(() => {
+      void refreshTodayTimeline();
+    }).then(registerSubscriptionDispose).catch((error) => {
+      console.warn("[dashboard] failed to subscribe to activity log updates", error);
+    });
+  });
 
   return {
     recentWindows,

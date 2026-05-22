@@ -5,6 +5,7 @@ commands.allow = [
   "get_today_summary",
   "get_top_apps",
   "get_browser_visits",
+  "get_activity_log",
   "get_statistics_snapshot",
   "get_timeline",
   "get_daily_summary",

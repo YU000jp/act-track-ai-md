@@ -23,6 +23,12 @@ The app is a Windows desktop tracker with a Tauri shell, a SolidJS dashboard, SQ
 - Stores browser, profile, URL, title, visited time, last-visit time, and source metadata.
 - Refreshes the dashboard with a lightweight local history snapshot when new visits are imported.
 
+### Unified activity log
+
+- The Activity tab combines foreground samples and browser visits into one chronological log.
+- Filters include date, source, app/title search, category, and browser.
+- The log refreshes when foreground samples advance or new browser visits are imported.
+
 ### 3. Activity classification
 
 Classification follows this order:

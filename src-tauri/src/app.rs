@@ -26,13 +26,14 @@ use crate::settings::{
 use crate::summarizer;
 use crate::tracker;
 use crate::types::{
-    ActivityCategory, ActivitySample, BrowserVisit, ClassificationResult,
-    ClassificationRuleRecord, DailySummary, MemoryRecord, MemorySnapshot, MemoryStatus,
-    StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
+    ActivityCategory, ActivityLogEntry, ActivityLogQuery, ActivitySample, BrowserVisit,
+    ClassificationResult, ClassificationRuleRecord, DailySummary, MemoryRecord, MemorySnapshot,
+    MemoryStatus, StatisticsSnapshot, TopApp, TrackingState, WindowSnapshot,
 };
 
 const TRACKING_ENABLED_SETTING_KEY: &str = "trackingEnabled";
 const TRACKING_STATUS_EVENT: &str = "tracking-status";
+const ACTIVITY_LOG_UPDATED_EVENT: &str = "activity-log-updated";
 const BROWSER_HISTORY_UPDATED_EVENT: &str = "browser-history-updated";
 const GEMINI_API_KEY_SETTINGS_EVENT: &str = "gemini-api-key-settings-requested";
 
@@ -79,13 +80,7 @@ impl AppState {
         settings.classification_rules_json = self
             .classification_rules
             .read()
-            .map(|rules| {
-                let drafts = rules
-                    .iter()
-                    .map(classification_rule_record_to_draft)
-                    .collect::<Vec<_>>();
-                serialize_classification_rules(&drafts)
-            })
+            .map(|rules| classification_rules_json_from_records(&rules))
             .unwrap_or_default();
         settings
     }
@@ -118,13 +113,7 @@ impl AppState {
             settings.classification_rules_json = self
                 .classification_rules
                 .read()
-                .map(|rules| {
-                    let drafts = rules
-                        .iter()
-                        .map(classification_rule_record_to_draft)
-                        .collect::<Vec<_>>();
-                    serialize_classification_rules(&drafts)
-                })
+                .map(|rules| classification_rules_json_from_records(&rules))
                 .unwrap_or_default();
         }
     }
@@ -168,6 +157,94 @@ impl AppState {
         self.gemini_api_key_prompt_lock
             .store(false, Ordering::Release);
     }
+}
+
+fn classification_rules_json_from_records(records: &[ClassificationRuleRecord]) -> String {
+    serialize_classification_rules(
+        &records
+            .iter()
+            .map(classification_rule_record_to_draft)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn apply_settings_update_snapshot(snapshot: &mut AppSettings, settings: &SettingsUpdate) {
+    snapshot.dashboard_bootstrap_timeout_ms = settings.dashboard_bootstrap_timeout_ms;
+    snapshot.poll_interval_ms = settings.poll_interval_ms;
+    snapshot.idle_timeout_ms = settings.idle_timeout_ms;
+    snapshot.notification_cooldown_ms = settings.notification_cooldown_ms;
+    snapshot.grace_period_ms = settings.grace_period_ms;
+    snapshot.markdown_export_path = settings.markdown_export_path.clone();
+    snapshot.notifications_enabled = settings.notifications_enabled;
+    snapshot.auto_start = settings.auto_start;
+    snapshot.classification_rules_json = settings.classification_rules_json.clone();
+    snapshot.summary_language = settings.summary_language.clone();
+    snapshot.summary_tone = settings.summary_tone.clone();
+    snapshot.markdown_privacy_mode = settings.markdown_privacy_mode;
+    snapshot.start_in_background = settings.start_in_background;
+    snapshot.browser_history_enabled = settings.browser_history_enabled;
+    snapshot.browser_history_poll_interval_ms = settings.browser_history_poll_interval_ms;
+    snapshot.browser_history_redact_query = settings.browser_history_redact_query;
+}
+
+fn persist_classification_rules_json(
+    state: &State<'_, Arc<AppState>>,
+    classification_rules_json: &str,
+    command: &'static str,
+) -> AppResult<()> {
+    let datastores = state.datastores.lock().map_err(|error| {
+        lock_error(
+            command,
+            "lock datastores for rule projection sync",
+            error,
+        )
+    })?;
+    datastores.set_setting("classificationRulesJson", classification_rules_json)?;
+    Ok(())
+}
+
+fn apply_classification_rules_projection(
+    state: &State<'_, Arc<AppState>>,
+    records: Vec<ClassificationRuleRecord>,
+) -> AppResult<Vec<ClassificationRuleRecord>> {
+    let classification_rules_json = classification_rules_json_from_records(&records);
+    persist_classification_rules_json(state, &classification_rules_json, "classification_rules")?;
+    state.replace_classification_rules(records.clone());
+    Ok(records)
+}
+
+pub fn with_dashboard_commands(
+    builder: tauri::Builder<tauri::Wry>,
+) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        get_today_summary,
+        get_top_apps,
+        get_browser_visits,
+        get_activity_log,
+        get_statistics_snapshot,
+        get_timeline,
+        get_daily_summary,
+        get_settings,
+        get_tracking_status,
+        get_dashboard_bootstrap,
+        get_classification_rules,
+        save_classification_rule,
+        delete_classification_rule,
+        set_classification_rule_enabled,
+        move_classification_rule,
+        reorder_classification_rule,
+        get_memory_snapshot,
+        set_setting,
+        get_setting,
+        generate_summary_now,
+        save_summary_feedback,
+        get_memory_status,
+        list_memories,
+        forget_memory,
+        pin_memory,
+        toggle_tracking,
+        set_settings
+    ])
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -348,6 +425,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                     let idle_ms = tracker::get_idle_ms();
                     if tracker::is_idle(idle_ms, settings.idle_timeout_ms) {
                         finalize_previous_sample(
+                            &app,
                             &state,
                             previous_sample.as_ref(),
                             if day_changed { day_start } else { now },
@@ -374,6 +452,7 @@ pub fn start_background_loop(app: AppHandle, state: Arc<AppState>) {
                     }
                 } else if day_changed {
                     finalize_previous_sample(
+                        &app,
                         &state,
                         previous_sample.as_ref(),
                         day_start,
@@ -410,6 +489,9 @@ pub fn start_browser_history_loop(app: AppHandle, state: Arc<AppState>) {
             if settings.browser_history_enabled {
                 let inserted = collector.sync(&state.datastores, &settings);
                 if inserted > 0 {
+                    if let Err(error) = app.emit(ACTIVITY_LOG_UPDATED_EVENT, ()) {
+                        log::warn!("failed to emit activity log update event: {error}");
+                    }
                     if let Err(error) = app.emit(BROWSER_HISTORY_UPDATED_EVENT, ()) {
                         log::warn!("failed to emit browser history update event: {error}");
                     }
@@ -463,6 +545,9 @@ pub fn start_browser_native_inbox_loop(app: AppHandle, state: Arc<AppState>) {
                     }
 
                     if inserted > 0 {
+                        if let Err(error) = app.emit(ACTIVITY_LOG_UPDATED_EVENT, ()) {
+                            log::warn!("failed to emit activity log update event: {error}");
+                        }
                         if let Err(error) = app.emit(BROWSER_HISTORY_UPDATED_EVENT, ()) {
                             log::warn!("failed to emit browser native update event: {error}");
                         }
@@ -597,6 +682,26 @@ pub fn get_timeline(
 }
 
 #[tauri::command]
+pub fn get_activity_log(
+    query: ActivityLogQuery,
+    state: State<'_, Arc<AppState>>,
+) -> AppResult<Vec<ActivityLogEntry>> {
+    let datastores = state
+        .datastores
+        .lock()
+        .map_err(|error| lock_error("get_activity_log", "lock datastores for activity log", error))?;
+    let entries = datastores
+        .get_activity_log_entries(&query)
+        .map_err(|error| {
+            AppError::database_for(
+                "get_activity_log",
+                format!("read activity log for {}: {error}", query.date),
+            )
+        })?;
+    Ok(entries)
+}
+
+#[tauri::command]
 pub fn get_daily_summary(
     date: String,
     state: State<'_, Arc<AppState>>,
@@ -625,10 +730,7 @@ pub fn get_settings(state: State<'_, Arc<AppState>>) -> AppResult<AppSettings> {
 #[tauri::command]
 pub fn get_tracking_status(state: State<'_, Arc<AppState>>) -> AppResult<TrackingStatus> {
     let running = state.tracking_enabled.load(Ordering::Relaxed);
-    Ok(TrackingStatus {
-        running,
-        state: tracking_state_from_running(running),
-    })
+    Ok(tracking_status_from_running(running))
 }
 
 #[tauri::command]
@@ -637,13 +739,7 @@ pub fn get_dashboard_bootstrap(
 ) -> AppResult<DashboardBootstrapSnapshot> {
     let today = current_day_string();
     let settings = state.settings_snapshot();
-    let tracking_status = {
-        let running = state.tracking_enabled.load(Ordering::Relaxed);
-        TrackingStatus {
-            running,
-            state: tracking_state_from_running(running),
-        }
-    };
+    let tracking_status = tracking_status_from_running(state.tracking_enabled.load(Ordering::Relaxed));
 
     let crate::db::BootstrapAggregationSnapshot {
         today_summary:
@@ -915,27 +1011,13 @@ pub fn set_settings(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> AppResult<()> {
-    persist_settings(&state, &input.settings)?;
-    sync_classification_rules_from_json(&state, &input.settings.classification_rules_json)?;
+    persist_settings_snapshot_fields(&state, &input.settings)?;
+    let classification_rules_json =
+        sync_classification_rules_from_json(&state, &input.settings.classification_rules_json)?;
 
     let mut updated_settings = state.settings_snapshot();
-    updated_settings.dashboard_bootstrap_timeout_ms = input.settings.dashboard_bootstrap_timeout_ms;
-    updated_settings.poll_interval_ms = input.settings.poll_interval_ms;
-    updated_settings.idle_timeout_ms = input.settings.idle_timeout_ms;
-    updated_settings.notification_cooldown_ms = input.settings.notification_cooldown_ms;
-    updated_settings.grace_period_ms = input.settings.grace_period_ms;
-    updated_settings.markdown_export_path = input.settings.markdown_export_path.clone();
-    updated_settings.notifications_enabled = input.settings.notifications_enabled;
-    updated_settings.auto_start = input.settings.auto_start;
-    updated_settings.summary_language = input.settings.summary_language.clone();
-    updated_settings.summary_tone = input.settings.summary_tone.clone();
-    updated_settings.markdown_privacy_mode = input.settings.markdown_privacy_mode;
-    updated_settings.start_in_background = input.settings.start_in_background;
-    updated_settings.browser_history_enabled = input.settings.browser_history_enabled;
-    updated_settings.browser_history_poll_interval_ms =
-        input.settings.browser_history_poll_interval_ms;
-    updated_settings.browser_history_redact_query = input.settings.browser_history_redact_query;
-
+    apply_settings_update_snapshot(&mut updated_settings, &input.settings);
+    updated_settings.classification_rules_json = classification_rules_json;
     state.update_settings_snapshot(updated_settings);
 
     if let Some(gemini_api_key) = input
@@ -1217,13 +1299,7 @@ pub fn load_tracking_enabled(datastores: &Datastores) -> AppResult<bool> {
 }
 
 pub fn emit_tracking_status(app: &AppHandle, running: bool) {
-    let _ = app.emit(
-        TRACKING_STATUS_EVENT,
-        TrackingStatus {
-            running,
-            state: tracking_state_from_running(running),
-        },
-    );
+    let _ = app.emit(TRACKING_STATUS_EVENT, tracking_status_from_running(running));
 }
 
 pub(crate) fn set_tracking_enabled(
@@ -1262,7 +1338,10 @@ fn set_tracking_enabled_inner(app: &AppHandle, state: &AppState, enabled: bool) 
     Ok(enabled)
 }
 
-fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate) -> AppResult<()> {
+fn persist_settings_snapshot_fields(
+    state: &State<'_, Arc<AppState>>,
+    settings: &SettingsUpdate,
+) -> AppResult<()> {
     let datastores = state
         .datastores
         .lock()
@@ -1290,10 +1369,6 @@ fn persist_settings(state: &State<'_, Arc<AppState>>, settings: &SettingsUpdate)
     datastores.set_setting(
         "autoStart",
         if settings.auto_start { "true" } else { "false" },
-    )?;
-    datastores.set_setting(
-        "classificationRulesJson",
-        &settings.classification_rules_json,
     )?;
     datastores.set_setting("summaryLanguage", &settings.summary_language)?;
     datastores.set_setting("summaryTone", &settings.summary_tone)?;
@@ -1361,6 +1436,12 @@ fn apply_setting_change(
         return Ok(());
     }
 
+    if key == "classificationRulesJson" {
+        let canonical_rules_json = sync_classification_rules_from_json(state, value)?;
+        state.update_setting_snapshot(key, &canonical_rules_json);
+        return Ok(());
+    }
+
     {
         let datastores = state.datastores.lock().map_err(|error| {
             lock_error("set_setting", "lock datastores for setting update", error)
@@ -1368,16 +1449,11 @@ fn apply_setting_change(
         datastores.set_setting(key, value)?;
     }
 
-    if key == "classificationRulesJson" {
-        sync_classification_rules_from_json(state, value)?;
+    if key == "autoStart" {
+        state.update_setting_snapshot(key, value);
+        apply_autostart(app, value == "true")?;
     } else {
         state.update_setting_snapshot(key, value);
-    }
-
-    if key == "classificationRulesJson" {
-        state.update_setting_snapshot(key, &state.settings_snapshot().classification_rules_json);
-    } else if key == "autoStart" {
-        apply_autostart(app, value == "true")?;
     }
 
     Ok(())
@@ -1386,7 +1462,7 @@ fn apply_setting_change(
 fn sync_classification_rules_from_json(
     state: &State<'_, Arc<AppState>>,
     raw_rules: &str,
-) -> AppResult<()> {
+) -> AppResult<String> {
     let parsed_rules = parse_classification_rules(Some(raw_rules));
     let records = {
         let datastores = state
@@ -1396,26 +1472,10 @@ fn sync_classification_rules_from_json(
         datastores.replace_classification_rules_from_drafts(&parsed_rules, "json")?
     };
 
-    let classification_rules_json = serialize_classification_rules(
-        &records
-            .iter()
-            .map(classification_rule_record_to_draft)
-            .collect::<Vec<_>>(),
-    );
-
-    {
-        let datastores = state.datastores.lock().map_err(|error| {
-            lock_error(
-                "set_setting",
-                "lock datastores for rule sync projection",
-                error,
-            )
-        })?;
-        datastores.set_setting("classificationRulesJson", &classification_rules_json)?;
-    }
-
+    let classification_rules_json = classification_rules_json_from_records(&records);
+    persist_classification_rules_json(state, &classification_rules_json, "set_setting")?;
     state.replace_classification_rules(records);
-    Ok(())
+    Ok(classification_rules_json)
 }
 
 fn refresh_classification_rules_projection(
@@ -1431,26 +1491,7 @@ fn refresh_classification_rules_projection(
         })?;
         datastores.get_classification_rules()?
     };
-    let classification_rules_json = serialize_classification_rules(
-        &records
-            .iter()
-            .map(classification_rule_record_to_draft)
-            .collect::<Vec<_>>(),
-    );
-
-    {
-        let datastores = state.datastores.lock().map_err(|error| {
-            lock_error(
-                "classification_rules",
-                "lock datastores for rule projection sync",
-                error,
-            )
-        })?;
-        datastores.set_setting("classificationRulesJson", &classification_rules_json)?;
-    }
-
-    state.replace_classification_rules(records.clone());
-    Ok(records)
+    apply_classification_rules_projection(state, records)
 }
 
 fn tracking_state_from_running(running: bool) -> TrackingState {
@@ -1458,6 +1499,13 @@ fn tracking_state_from_running(running: bool) -> TrackingState {
         TrackingState::Idle
     } else {
         TrackingState::Paused
+    }
+}
+
+fn tracking_status_from_running(running: bool) -> TrackingStatus {
+    TrackingStatus {
+        running,
+        state: tracking_state_from_running(running),
     }
 }
 
@@ -1777,6 +1825,7 @@ fn update_sample_duration(
 }
 
 fn finalize_previous_sample(
+    app: &AppHandle,
     state: &Arc<AppState>,
     previous: Option<&PreviousSample>,
     finalize_at: i64,
@@ -1786,6 +1835,8 @@ fn finalize_previous_sample(
         let duration_ms = (finalize_at - previous.timestamp).max(0);
         if let Err(error) = update_sample_duration(state, previous.id, duration_ms, command) {
             log::warn!("{command}: {error}");
+        } else if let Err(error) = app.emit(ACTIVITY_LOG_UPDATED_EVENT, ()) {
+            log::warn!("failed to emit activity log update event: {error}");
         }
     }
 }
@@ -1821,6 +1872,7 @@ fn track_active_window(
     };
 
     finalize_previous_sample(
+        app,
         state,
         previous_sample.as_ref(),
         if day_changed { day_start } else { now },
@@ -1852,6 +1904,10 @@ fn track_active_window(
         classification: classification.clone(),
         tracking_key: tracker::WindowTrackingKey::from_snapshot(snapshot),
     });
+
+    if let Err(error) = app.emit(ACTIVITY_LOG_UPDATED_EVENT, ()) {
+        log::warn!("failed to emit activity log update event: {error}");
+    }
 
     if day_changed && same_window {
         let duration_ms = (now - day_start).max(0);

@@ -23,6 +23,7 @@ const TAB_GROUPS: DashboardTabGroup[] = [
     label: "Overview",
     tabs: [
       { key: "today", id: "tab-today", panelId: "panel-today", label: "Today", hint: "snapshot" },
+      { key: "activity", id: "tab-activity", panelId: "panel-activity", label: "Activity", hint: "log" },
       { key: "statistics", id: "tab-statistics", panelId: "panel-statistics", label: "Statistics", hint: "range" },
     ],
   },

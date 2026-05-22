@@ -11,11 +11,12 @@ import {
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
 import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
-import { DEFAULT_SETTINGS, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, type ActivityLogEntry, type ActivityLogQuery, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
 const dashboardIndexPath = resolve(process.cwd(), "src/frontend/dashboard/index.html");
 const dashboardAppPath = resolve(process.cwd(), "src/frontend/dashboard/app.tsx");
 const dashboardTabsPath = resolve(process.cwd(), "src/frontend/dashboard/DashboardTabs.tsx");
+const dashboardActivityPath = resolve(process.cwd(), "src/frontend/dashboard/ActivityLogPanel.tsx");
 const dashboardRulesPath = resolve(process.cwd(), "src/frontend/dashboard/ClassificationPanel.tsx");
 const dashboardSettingsPath = resolve(process.cwd(), "src/frontend/dashboard/SettingsPanel.tsx");
 
@@ -73,6 +74,36 @@ function createDashboardRpcStub(): DashboardClient {
       visitedAt: Date.now(),
       lastVisitAt: Date.now(),
       source: "history-db",
+    },
+  ];
+  const activityLogEntries: ActivityLogEntry[] = [
+    {
+      id: "activity:1",
+      timestamp: Date.now(),
+      source: "foreground",
+      origin: "activity-log",
+      appName: "code",
+      title: "index.ts - VSCode",
+      category: "productive",
+      label: "Coding",
+      durationMs: 5_000,
+      browser: null,
+      profile: null,
+      url: null,
+    },
+    {
+      id: "browser:1",
+      timestamp: Date.now(),
+      source: "browser",
+      origin: "history-db",
+      appName: "chrome",
+      title: "Example",
+      category: "unknown",
+      label: "Browser visit",
+      durationMs: null,
+      browser: "chrome",
+      profile: "Default",
+      url: "https://example.com/path?q=1",
     },
   ];
   const bootstrap: DashboardBootstrapSnapshot = {
@@ -169,6 +200,34 @@ function createDashboardRpcStub(): DashboardClient {
     })),
     getTopApps: vi.fn(async () => summary.topApps),
     getBrowserVisits: vi.fn(async () => browserVisits),
+    getActivityLog: vi.fn(async (query: ActivityLogQuery) => {
+      const search = query.app?.toLowerCase().trim() ?? "";
+      const browser = query.browser?.toLowerCase().trim() ?? "";
+
+      return activityLogEntries.filter((entry) => {
+        if (query.source && entry.source !== query.source) {
+          return false;
+        }
+
+        if (query.category && entry.category !== query.category) {
+          return false;
+        }
+
+        if (browser && entry.browser?.toLowerCase() !== browser) {
+          return false;
+        }
+
+        if (
+          search &&
+          ![entry.appName, entry.title, entry.label, entry.origin, entry.browser ?? "", entry.profile ?? "", entry.url ?? ""]
+            .some((value) => value.toLowerCase().includes(search))
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+    }),
     getStatisticsSnapshot: vi.fn(async (rangeDays: number = 7) => ({
       rangeDays,
       startDate: rangeDays === 14 ? "2026-05-06" : rangeDays === 30 ? "2026-04-20" : "2026-05-13",
@@ -334,6 +393,7 @@ describe("dashboard shell", () => {
     expect(root?.children).toHaveLength(0);
     expect(parsedDocument.querySelector("#tab-bar")).toBeNull();
     expect(parsedDocument.querySelector("#panel-today")).toBeNull();
+    expect(parsedDocument.querySelector("#panel-activity")).toBeNull();
     expect(parsedDocument.querySelector("#panel-rules")).toBeNull();
     expect(parsedDocument.querySelector("#panel-settings")).toBeNull();
     expect(parsedDocument.querySelector("#summary-feedback")).toBeNull();
@@ -358,6 +418,8 @@ describe("dashboard shell", () => {
     expect(controller.activeTab()).toBe("today");
     controller.setActiveTab("statistics");
     expect(controller.activeTab()).toBe("statistics");
+    controller.setActiveTab("activity");
+    expect(controller.activeTab()).toBe("activity");
     controller.setActiveTab("rules");
     expect(controller.activeTab()).toBe("rules");
     controller.setActiveTab("memory");
@@ -367,6 +429,8 @@ describe("dashboard shell", () => {
     await flushPromises();
     expect(controller.recentWindows()).toHaveLength(1);
     expect(controller.recentWindows()[0]?.windowTitle).toBe("index.ts - VSCode");
+    expect(controller.activityLog.activityLogEntries()).toHaveLength(2);
+    expect(controller.activityLog.filters().date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(controller.classification.rules()).toHaveLength(1);
     expect(controller.classification.sourceOptions()).toEqual(["manual"]);
     expect(controller.classification.filteredRules()).toHaveLength(1);
@@ -447,6 +511,7 @@ describe("dashboard shell", () => {
   it("renders a header toggle for tracking and prevents duplicate clicks while pending", async () => {
     const appSource = readFileSync(dashboardAppPath, "utf8");
     const tabsSource = readFileSync(dashboardTabsPath, "utf8");
+    const activitySource = readFileSync(dashboardActivityPath, "utf8");
     const rulesSource = readFileSync(dashboardRulesPath, "utf8");
     const settingsSource = readFileSync(dashboardSettingsPath, "utf8");
 
@@ -459,8 +524,12 @@ describe("dashboard shell", () => {
     expect(appSource).not.toContain("Sync");
     expect(tabsSource).toContain("Overview");
     expect(tabsSource).toContain("Management");
+    expect(tabsSource).toContain("Activity");
     expect(tabsSource).toContain("Rules");
+    expect(tabsSource).toContain("tab-activity");
     expect(tabsSource).toContain("tab-rules");
+    expect(activitySource).toContain("Unified activity log");
+    expect(activitySource).toContain("panel-activity");
     expect(rulesSource).toContain('id="panel-rules"');
     expect(rulesSource).toContain('aria-labelledby="tab-rules"');
     expect(appSource).toContain("Rules + cache + Gemini");

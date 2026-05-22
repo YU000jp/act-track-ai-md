@@ -85,6 +85,41 @@ pub struct BrowserVisit {
     pub source: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityLogSource {
+    Foreground,
+    Browser,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityLogEntry {
+    pub id: String,
+    pub timestamp: i64,
+    pub source: ActivityLogSource,
+    pub origin: String,
+    pub app_name: String,
+    pub title: String,
+    pub category: ActivityCategory,
+    pub label: String,
+    pub duration_ms: Option<i64>,
+    pub browser: Option<String>,
+    pub profile: Option<String>,
+    pub url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityLogQuery {
+    pub date: String,
+    pub source: Option<ActivityLogSource>,
+    pub app: Option<String>,
+    pub category: Option<ActivityCategory>,
+    pub browser: Option<String>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivitySample {

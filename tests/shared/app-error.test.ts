@@ -41,6 +41,16 @@ describe("app error normalization", () => {
     expect(describeAppError(payload)).toBe("Browser visits: read failed");
   });
 
+  it("formats activity log commands with a readable label", () => {
+    const payload = AppErrorSchema.parse({
+      kind: "database",
+      command: "get_activity_log",
+      message: "read failed",
+    });
+
+    expect(describeAppError(payload)).toBe("Activity log: read failed");
+  });
+
   it("normalizes unknown values to a fallback error", () => {
     const payload = normalizeAppError(null);
 

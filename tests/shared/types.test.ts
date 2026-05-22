@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_CATEGORIES,
   type ActivityCategory,
+  type ActivityLogEntry,
+  type ActivityLogQuery,
   type ActivitySample,
   type BrowserVisit,
   type ClassificationResult,
@@ -50,7 +52,7 @@ describe("shared types", () => {
 
   it("BrowserVisit models browser history rows", () => {
     const visit: BrowserVisit = {
-      browser: "chrome",
+      browser: "firefox",
       profile: "Default",
       url: "https://example.com/path?q=1",
       title: "Example",
@@ -59,8 +61,37 @@ describe("shared types", () => {
       source: "history-db",
     };
 
-    expect(visit.browser).toBe("chrome");
+    expect(visit.browser).toBe("firefox");
     expect(visit.source).toBe("history-db");
+  });
+
+  it("ActivityLogEntry represents unified activity rows", () => {
+    const entry: ActivityLogEntry = {
+      id: "activity:1",
+      timestamp: 1_700_000_000_000,
+      source: "foreground",
+      origin: "activity-log",
+      appName: "code.exe",
+      title: "index.ts - VSCode",
+      category: "productive",
+      label: "Coding",
+      durationMs: 5_000,
+      browser: null,
+      profile: null,
+      url: null,
+    };
+
+    const query: ActivityLogQuery = {
+      date: "2026-05-19",
+      source: "foreground",
+      app: "code",
+      category: "productive",
+      browser: "",
+      limit: 50,
+    };
+
+    expect(entry.source).toBe("foreground");
+    expect(query.date).toBe("2026-05-19");
   });
 
   it("DailySummary has all aggregate fields", () => {

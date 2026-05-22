@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(process.cwd());
-const mainRsPath = resolve(repoRoot, "src-tauri/src/main.rs");
+const appRsPath = resolve(repoRoot, "src-tauri/src/app.rs");
 const permissionsPath = resolve(repoRoot, "src-tauri/permissions/app-commands.toml");
 const bridgePath = resolve(repoRoot, "src/frontend/dashboard/tauri-bridge.ts");
 
@@ -38,11 +38,11 @@ function extractBridgeCommands(source: string): string[] {
 
 describe("dashboard command registration", () => {
   it("keeps the backend handler list and ACL allow list aligned", () => {
-    const mainRs = readFileSync(mainRsPath, "utf8");
+    const appRs = readFileSync(appRsPath, "utf8");
     const permissions = readFileSync(permissionsPath, "utf8");
 
     expect(uniqueSorted(extractPermissionCommands(permissions))).toEqual(
-      uniqueSorted(extractGenerateHandlerCommands(mainRs)),
+      uniqueSorted(extractGenerateHandlerCommands(appRs)),
     );
   });
 

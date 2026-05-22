@@ -116,6 +116,7 @@ const COMMAND_LABELS: Partial<Record<string, string>> = {
   get_top_apps: "Top apps",
   get_statistics_snapshot: "Statistics snapshot",
   get_timeline: "Timeline",
+  get_activity_log: "Activity log",
   get_daily_summary: "Daily summary",
   get_settings: "Settings",
   get_tracking_status: "Tracking status",

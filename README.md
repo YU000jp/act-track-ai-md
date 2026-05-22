@@ -9,6 +9,7 @@ ActTrack AI MD is a Windows desktop app for foreground window tracking, Gemini-b
 - Native messaging browser bridge support for extension-fed visits
 - Rule-first classification with cache and Gemini fallback
 - SQLite activity log and daily summaries
+- Unified activity log tab with date, source, app, category, and browser filters
 - Native tray icon and notifications with Tauri
 - Markdown export for daily reviews
 - Local memory store for feedback and context

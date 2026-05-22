@@ -1,6 +1,7 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import type { TrackingStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
+import { createSubscriptionRegistrar } from "./helpers";
 
 type UseTrackingControllerProps = {
   rpc: Pick<DashboardClient, "toggleTracking">;
@@ -22,7 +23,7 @@ const EMPTY_TRACKING_STATUS: TrackingStatus = {
 export function useTrackingController(props: UseTrackingControllerProps): TrackingController {
   const [trackingStatus, setTrackingStatus] = createSignal<TrackingStatus>(EMPTY_TRACKING_STATUS);
   const [isTogglingTracking, setIsTogglingTracking] = createSignal(false);
-  let disposeTrackingListener: (() => void) | undefined;
+  const registerSubscriptionDispose = createSubscriptionRegistrar();
 
   function hydrateTracking(status: TrackingStatus): void {
     setTrackingStatus(status);
@@ -50,14 +51,12 @@ export function useTrackingController(props: UseTrackingControllerProps): Tracki
     if (props.subscribeTrackingStatus) {
       void props.subscribeTrackingStatus((status: TrackingStatus) => {
         setTrackingStatus(status);
-      }).then((dispose) => {
-        disposeTrackingListener = dispose;
-      });
+      })
+        .then(registerSubscriptionDispose)
+        .catch((error) => {
+          console.warn("[dashboard] failed to subscribe to tracking status", error);
+        });
     }
-
-    onCleanup(() => {
-      disposeTrackingListener?.();
-    });
   });
 
   return {

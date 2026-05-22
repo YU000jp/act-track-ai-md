@@ -1,3 +1,4 @@
+import { onCleanup } from "solid-js";
 import type { AppSettings } from "../../shared/types";
 import { RESTART_REQUIRED_SETTINGS } from "../../shared/settings";
 
@@ -25,6 +26,10 @@ export function formatActivityTime(timestamp: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+export function formatActivityDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString();
 }
 
 export function formatBrowserVisitUrl(url: string, redactQuery: boolean): string {
@@ -69,6 +74,27 @@ export function parseBootstrapTimeout(value: string | null | undefined): number 
 
 export function getCurrentUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+export function createSubscriptionRegistrar(): (dispose: (() => void) | undefined) => void {
+  const disposers: Array<() => void> = [];
+
+  onCleanup(() => {
+    while (disposers.length > 0) {
+      const dispose = disposers.pop();
+      try {
+        dispose?.();
+      } catch (error) {
+        console.warn("[dashboard] failed to dispose subscription", error);
+      }
+    }
+  });
+
+  return (dispose) => {
+    if (dispose) {
+      disposers.push(dispose);
+    }
+  };
 }
 
 export async function withTimeout<T>(

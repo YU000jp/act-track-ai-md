@@ -6,8 +6,9 @@ use rusqlite::{params, types::Type, Connection, OptionalExtension};
 
 use crate::settings::ClassificationRule;
 use crate::types::{
-    ActivityCategory, ActivitySample, DailySummary, StatisticsDaySummary, StatisticsSnapshot,
-    BrowserVisit, ClassificationRuleRecord, ClassificationRuleScope, TopApp,
+    ActivityCategory, ActivityLogEntry, ActivityLogQuery, ActivityLogSource, ActivitySample,
+    BrowserVisit, ClassificationRuleRecord, ClassificationRuleScope, DailySummary,
+    StatisticsDaySummary, StatisticsSnapshot, TopApp,
 };
 
 pub struct DayActivitySnapshot {
@@ -748,6 +749,60 @@ impl Datastores {
         self.query_activity_range(from_ms, to_ms)
     }
 
+    pub fn get_activity_log_entries(
+        &self,
+        query: &ActivityLogQuery,
+    ) -> anyhow::Result<Vec<ActivityLogEntry>> {
+        let (from_ms, to_ms) = day_bounds(&query.date);
+        let mut entries = self.read_foreground_activity_log_entries(from_ms, to_ms)?;
+        entries.extend(self.read_browser_activity_log_entries(from_ms, to_ms)?);
+
+        let app_filter = normalize_activity_log_text(query.app.as_deref());
+        let browser_filter = normalize_activity_log_text(query.browser.as_deref());
+        let limit = query.limit.unwrap_or(200).max(0) as usize;
+
+        entries.retain(|entry| {
+            if let Some(source) = query.source {
+                if entry.source != source {
+                    return false;
+                }
+            }
+
+            if let Some(category) = query.category {
+                if entry.category != category {
+                    return false;
+                }
+            }
+
+            if let Some(ref browser_filter) = browser_filter {
+                let Some(entry_browser) = entry.browser.as_deref() else {
+                    return false;
+                };
+                if !contains_activity_log_text(entry_browser, browser_filter) {
+                    return false;
+                }
+            }
+
+            if let Some(ref app_filter) = app_filter {
+                if !entry_matches_activity_log_text(entry, app_filter) {
+                    return false;
+                }
+            }
+
+            true
+        });
+
+        entries.sort_by(|left, right| {
+            right
+                .timestamp
+                .cmp(&left.timestamp)
+                .then_with(|| source_rank(right.source).cmp(&source_rank(left.source)))
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        entries.truncate(limit);
+        Ok(entries)
+    }
+
     #[allow(dead_code)]
     pub fn get_stats_for_day(&self, date_str: &str) -> anyhow::Result<(i64, i64, i64, i64)> {
         let snapshot = self.get_day_activity_snapshot(date_str)?;
@@ -896,6 +951,72 @@ impl Datastores {
 
         rows.collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("collect activity range {from_ms}..{to_ms}"))
+    }
+
+    fn read_foreground_activity_log_entries(
+        &self,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> anyhow::Result<Vec<ActivityLogEntry>> {
+        let activity = self.query_activity_range(from_ms, to_ms)?;
+        Ok(activity
+            .into_iter()
+            .map(|sample| ActivityLogEntry {
+                id: format!("activity:{}", sample.id),
+                timestamp: sample.timestamp,
+                source: ActivityLogSource::Foreground,
+                origin: "activity-log".to_string(),
+                app_name: sample.process_name,
+                title: sample.window_title,
+                category: sample.category,
+                label: sample.label,
+                duration_ms: Some(sample.duration_ms),
+                browser: None,
+                profile: None,
+                url: None,
+            })
+            .collect())
+    }
+
+    fn read_browser_activity_log_entries(
+        &self,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> anyhow::Result<Vec<ActivityLogEntry>> {
+        let mut stmt = self.activity.prepare(
+            "SELECT id, browser, profile, url, title, visited_at, last_visit_at, source FROM browser_visit_log WHERE visited_at >= ?1 AND visited_at < ?2 ORDER BY visited_at DESC, last_visit_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map(params![from_ms, to_ms], |row| {
+            let browser: String = row.get(1)?;
+            let profile: String = row.get(2)?;
+            let url: String = row.get(3)?;
+            let title: String = row.get(4)?;
+            let visited_at: i64 = row.get(5)?;
+            let source: String = row.get(7)?;
+            let display_title = if title.trim().is_empty() {
+                url.clone()
+            } else {
+                title.clone()
+            };
+
+            Ok(ActivityLogEntry {
+                id: format!("browser:{}", row.get::<_, i64>(0)?),
+                timestamp: visited_at,
+                source: ActivityLogSource::Browser,
+                origin: source.clone(),
+                app_name: browser.clone(),
+                title: display_title,
+                category: ActivityCategory::Unknown,
+                label: source,
+                duration_ms: None,
+                browser: Some(browser),
+                profile: Some(profile),
+                url: Some(url),
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("collect browser activity log entries {from_ms}..{to_ms}"))
     }
 
     fn save_daily_summary_full(&self, summary: &DailySummary) -> anyhow::Result<()> {
@@ -1286,6 +1407,38 @@ fn day_bounds(date_str: &str) -> (i64, i64) {
         .and_utc()
         .timestamp_millis();
     (start, start + 86_400_000)
+}
+
+fn source_rank(source: ActivityLogSource) -> u8 {
+    match source {
+        ActivityLogSource::Foreground => 1,
+        ActivityLogSource::Browser => 0,
+    }
+}
+
+fn normalize_activity_log_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase())
+}
+
+fn contains_activity_log_text(value: &str, needle: &str) -> bool {
+    value.to_lowercase().contains(needle)
+}
+
+fn entry_matches_activity_log_text(entry: &ActivityLogEntry, needle: &str) -> bool {
+    let haystacks = [
+        entry.app_name.as_str(),
+        entry.title.as_str(),
+        entry.label.as_str(),
+        entry.origin.as_str(),
+        entry.browser.as_deref().unwrap_or_default(),
+        entry.profile.as_deref().unwrap_or_default(),
+        entry.url.as_deref().unwrap_or_default(),
+    ];
+
+    haystacks.into_iter().any(|value| contains_activity_log_text(value, needle))
 }
 
 #[derive(Default)]

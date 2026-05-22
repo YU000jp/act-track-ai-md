@@ -1,6 +1,11 @@
 import { render } from "solid-js/web";
 import { APP_META } from "../../shared/app-meta";
-import { installDashboardRPC, subscribeBrowserHistoryUpdates, subscribeTrackingStatus } from "./tauri-bridge";
+import {
+  installDashboardRPC,
+  subscribeActivityLogUpdates,
+  subscribeBrowserHistoryUpdates,
+  subscribeTrackingStatus,
+} from "./tauri-bridge";
 import { App } from "./app";
 import "./style.css";
 
@@ -43,6 +48,7 @@ async function bootstrap(): Promise<void> {
       <App
         rpc={rpc}
         subscribeTrackingStatus={subscribeTrackingStatus}
+        subscribeActivityLogUpdates={subscribeActivityLogUpdates}
         subscribeBrowserHistoryUpdates={subscribeBrowserHistoryUpdates}
       />
     ),

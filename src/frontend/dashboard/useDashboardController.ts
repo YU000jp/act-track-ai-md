@@ -1,12 +1,13 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import { normalizeAppError } from "../../shared/app-error";
 import { APP_META } from "../../shared/app-meta";
 import type { DashboardBootstrapSnapshot } from "../../shared/types";
 import { type TrackingStatus } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
-import { parseBootstrapTimeout, withTimeout } from "./helpers";
+import { createSubscriptionRegistrar, parseBootstrapTimeout, withTimeout } from "./helpers";
 import type { DashboardErrorState, DashboardToast, TabKey } from "./types";
 import { useBrowserHistoryController } from "./useBrowserHistoryController";
+import { useActivityLogController } from "./useActivityLogController";
 import { useMemoryController } from "./useMemoryController";
 import { useClassificationController } from "./useClassificationController";
 import { useSettingsController } from "./useSettingsController";
@@ -19,6 +20,7 @@ type ControllerProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
+  subscribeActivityLogUpdates?: (listener: () => void) => Promise<() => void>;
   subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
 };
 
@@ -32,6 +34,7 @@ export type DashboardController = {
   todayStats: ReturnType<typeof useStatsController>["todayStats"];
   topApps: ReturnType<typeof useStatsController>["topApps"];
   browserVisits: ReturnType<typeof useBrowserHistoryController>["browserVisits"];
+  activityLog: ReturnType<typeof useActivityLogController>;
   recentWindows: ReturnType<typeof useTimelineController>["recentWindows"];
   rangeStats: ReturnType<typeof useStatsController>["rangeStats"];
   rangeWindow: ReturnType<typeof useStatsController>["rangeWindow"];
@@ -63,6 +66,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   const [errorState, setErrorState] = createSignal<DashboardErrorState | null>(null);
   const [toasts, setToasts] = createSignal<DashboardToast[]>([]);
   const [isHydrated, setIsHydrated] = createSignal(false);
+  const registerSubscriptionDispose = createSubscriptionRegistrar();
 
   function pushToast(kind: DashboardToast["kind"], title: string, message: string): void {
     const toast: DashboardToast = {
@@ -179,6 +183,14 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     pushToast,
   });
 
+  const activityLogController = useActivityLogController({
+    rpc: props.rpc,
+    reportError: reportDashboardError,
+    pushToast,
+    subscribeActivityLogUpdates: props.subscribeActivityLogUpdates,
+    subscribeBrowserHistoryUpdates: props.subscribeBrowserHistoryUpdates,
+  });
+
   const classificationController = useClassificationController({
     rpc: props.rpc,
     reportError: reportDashboardError,
@@ -195,6 +207,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
 
   const timelineController = useTimelineController({
     rpc: props.rpc,
+    subscribeActivityLogUpdates: props.subscribeActivityLogUpdates,
   });
 
   const trackingController = useTrackingController({
@@ -203,37 +216,25 @@ export function useDashboardController(props: ControllerProps): DashboardControl
   });
 
   onMount(() => {
-    if (!props.subscribeGeminiApiKeySettings) {
-      return;
+    if (props.subscribeGeminiApiKeySettings) {
+      void props.subscribeGeminiApiKeySettings(() => {
+        setActiveTab("settings");
+      })
+        .then(registerSubscriptionDispose)
+        .catch((error) => {
+          console.warn("[dashboard] failed to subscribe to Gemini settings updates", error);
+        });
     }
 
-    let disposeGeminiSettingsListener: (() => void) | undefined;
-    void props.subscribeGeminiApiKeySettings(() => {
-      setActiveTab("settings");
-    }).then((dispose) => {
-      disposeGeminiSettingsListener = dispose;
-    });
-
-    onCleanup(() => {
-      disposeGeminiSettingsListener?.();
-    });
-  });
-
-  onMount(() => {
-    if (!props.subscribeBrowserHistoryUpdates) {
-      return;
+    if (props.subscribeBrowserHistoryUpdates) {
+      void props.subscribeBrowserHistoryUpdates(() => {
+        void browserHistoryController.refreshBrowserVisits();
+      })
+        .then(registerSubscriptionDispose)
+        .catch((error) => {
+          console.warn("[dashboard] failed to subscribe to browser history updates", error);
+        });
     }
-
-    let disposeBrowserHistoryListener: (() => void) | undefined;
-    void props.subscribeBrowserHistoryUpdates(() => {
-      void browserHistoryController.refreshBrowserVisits();
-    }).then((dispose) => {
-      disposeBrowserHistoryListener = dispose;
-    });
-
-    onCleanup(() => {
-      disposeBrowserHistoryListener?.();
-    });
   });
 
   async function hydrateDashboard(): Promise<void> {
@@ -288,6 +289,7 @@ export function useDashboardController(props: ControllerProps): DashboardControl
     todayStats: statsController.todayStats,
     topApps: statsController.topApps,
     browserVisits: browserHistoryController.browserVisits,
+    activityLog: activityLogController,
     recentWindows: timelineController.recentWindows,
     rangeStats: statsController.rangeStats,
     rangeWindow: statsController.rangeWindow,

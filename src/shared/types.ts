@@ -12,13 +12,39 @@ export type WindowSnapshot = {
 };
 
 export type BrowserVisit = {
-  browser: "chrome" | "edge";
+  browser: "chrome" | "edge" | "firefox";
   profile: string;
   url: string;
   title: string;
   visitedAt: number;
   lastVisitAt: number;
   source: "history-db";
+};
+
+export type ActivityLogSource = "foreground" | "browser";
+
+export type ActivityLogEntry = {
+  id: string;
+  timestamp: number;
+  source: ActivityLogSource;
+  origin: string;
+  appName: string;
+  title: string;
+  category: ActivityCategory;
+  label: string;
+  durationMs: number | null;
+  browser: string | null;
+  profile: string | null;
+  url: string | null;
+};
+
+export type ActivityLogQuery = {
+  date: string;
+  source?: ActivityLogSource;
+  app?: string;
+  category?: ActivityCategory;
+  browser?: string;
+  limit?: number;
 };
 
 export type ClassificationRuleDraft = {
@@ -149,6 +175,7 @@ export type DashboardRPC = {
     }>;
     getTopApps: () => Promise<Array<{ processName: string; durationMs: number; category: ActivityCategory }>>;
     getBrowserVisits: (limit?: number) => Promise<BrowserVisit[]>;
+    getActivityLog: (query: ActivityLogQuery) => Promise<ActivityLogEntry[]>;
     getStatisticsSnapshot: (rangeDays?: StatisticsRange) => Promise<StatisticsSnapshot>;
     getTimeline: (date: string) => Promise<ActivitySample[]>;
     getDailySummary: (date: string) => Promise<DailySummary | null>;

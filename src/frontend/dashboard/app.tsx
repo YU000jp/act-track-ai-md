@@ -2,6 +2,7 @@ import type { TrackingStatus } from "../../shared/types";
 import type { MemoryStatus } from "../../shared/types";
 import brandMarkUrl from "../assets/icon.png";
 import type { DashboardClient } from "./tauri-bridge";
+import { ActivityLogPanel } from "./ActivityLogPanel";
 import { ClassificationPanel } from "./ClassificationPanel";
 import { DashboardTabs } from "./DashboardTabs";
 import { ErrorBanner } from "./ErrorBanner";
@@ -12,12 +13,17 @@ import { StatisticsPanel } from "./StatisticsPanel";
 import { TodayPanel } from "./TodayPanel";
 import { ToastRegion } from "./ToastRegion";
 import { useDashboardController } from "./useDashboardController";
-import { subscribeBrowserHistoryUpdates, subscribeGeminiApiKeySettings } from "./tauri-bridge";
+import {
+  subscribeActivityLogUpdates,
+  subscribeBrowserHistoryUpdates,
+  subscribeGeminiApiKeySettings,
+} from "./tauri-bridge";
 
 type AppProps = {
   rpc: DashboardClient;
   subscribeTrackingStatus?: (listener: (status: TrackingStatus) => void) => Promise<() => void>;
   subscribeGeminiApiKeySettings?: (listener: () => void) => Promise<() => void>;
+  subscribeActivityLogUpdates?: (listener: () => void) => Promise<() => void>;
   subscribeBrowserHistoryUpdates?: (listener: () => void) => Promise<() => void>;
 };
 
@@ -67,6 +73,7 @@ export function App(props: AppProps) {
     rpc: props.rpc,
     subscribeTrackingStatus: props.subscribeTrackingStatus,
     subscribeGeminiApiKeySettings: props.subscribeGeminiApiKeySettings ?? subscribeGeminiApiKeySettings,
+    subscribeActivityLogUpdates: props.subscribeActivityLogUpdates ?? subscribeActivityLogUpdates,
     subscribeBrowserHistoryUpdates: props.subscribeBrowserHistoryUpdates ?? subscribeBrowserHistoryUpdates,
   });
 
@@ -142,6 +149,12 @@ export function App(props: AppProps) {
             controller.classification.beginCreateRuleFromWindow(sample);
             controller.setActiveTab("rules");
           }}
+        />
+
+        <ActivityLogPanel
+          active={controller.activeTab() === "activity"}
+          controller={controller.activityLog}
+          browserHistoryRedactQuery={settings().browserHistoryRedactQuery}
         />
 
         <StatisticsPanel
