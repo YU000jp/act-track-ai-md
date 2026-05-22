@@ -5,7 +5,7 @@
   "scripts": {
     "build:frontend": "vite build",
     "build:release": "node scripts/build-release.mjs",
-    "dev:frontend": "vite",
+    "dev:frontend": "node scripts/dev-frontend.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "typecheck": "tsc --noEmit",
