@@ -23,6 +23,7 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
+      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
 
     steps:
       - name: Determine release metadata
@@ -36,8 +37,17 @@ jobs:
             PRERELEASE=false
           fi
 
+          # For manual dispatches, build from the current workflow branch instead of
+          # re-checking an older tag. The tag value is still used for release naming.
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            CHECKOUT_REF="$GITHUB_REF"
+          else
+            CHECKOUT_REF="refs/tags/$TAG"
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$CHECKOUT_REF" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -47,7 +57,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
