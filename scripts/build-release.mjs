@@ -13,15 +13,34 @@ const cargoTargetDirs = [
   resolve(repoRoot, "src-tauri", "target"),
 ].filter(Boolean);
 
-function getExistingBundleRoot() {
+function getExistingBundleRoots() {
+  const bundleRoots = [];
+
   for (const cargoTargetDir of cargoTargetDirs) {
-    const bundleRoot = resolve(cargoTargetDir, "release", "bundle");
-    if (existsSync(bundleRoot)) {
-      return bundleRoot;
+    if (!existsSync(cargoTargetDir)) {
+      continue;
+    }
+
+    const directBundleRoot = resolve(cargoTargetDir, "release", "bundle");
+    if (existsSync(directBundleRoot)) {
+      bundleRoots.push(directBundleRoot);
+    }
+
+    // Tauri may place bundles under a target-triple directory, for example
+    // target/x86_64-pc-windows-msvc/release/bundle on Windows CI.
+    for (const entry of readdirSync(cargoTargetDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      const nestedBundleRoot = resolve(cargoTargetDir, entry.name, "release", "bundle");
+      if (existsSync(nestedBundleRoot)) {
+        bundleRoots.push(nestedBundleRoot);
+      }
     }
   }
 
-  return null;
+  return [...new Set(bundleRoots)];
 }
 
 function run(command, args) {
@@ -38,9 +57,21 @@ function run(command, args) {
 }
 
 function collectReleaseArtifacts() {
-  const tauriBundleRoot = getExistingBundleRoot();
-  if (!tauriBundleRoot) {
-    const searched = cargoTargetDirs.map((dir) => resolve(dir, "release", "bundle")).join(", ");
+  const tauriBundleRoots = getExistingBundleRoots();
+  if (tauriBundleRoots.length === 0) {
+    const searched = cargoTargetDirs.flatMap((dir) => {
+      const candidates = [resolve(dir, "release", "bundle")];
+
+      if (existsSync(dir)) {
+        candidates.push(
+          ...readdirSync(dir, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => resolve(dir, entry.name, "release", "bundle")),
+        );
+      }
+
+      return candidates;
+    }).join(", ");
     throw new Error(`Release bundle directory was not found. Checked: ${searched}`);
   }
 
@@ -51,7 +82,7 @@ function collectReleaseArtifacts() {
   mkdirSync(releaseAssetsDir, { recursive: true });
 
   const allowedExtensions = new Set([".exe", ".msi", ".zip"]);
-  const stack = [tauriBundleRoot];
+  const stack = [...tauriBundleRoots];
   const artifacts = [];
 
   // Tauri emits platform-specific bundles under nested directories, so we normalize
@@ -77,7 +108,7 @@ function collectReleaseArtifacts() {
 
   const uniqueArtifacts = [...new Set(artifacts)].sort();
   if (uniqueArtifacts.length === 0) {
-    throw new Error(`No packaged release artifacts were found under ${tauriBundleRoot}`);
+    throw new Error(`No packaged release artifacts were found under ${tauriBundleRoots.join(", ")}`);
   }
 
   for (const artifact of uniqueArtifacts) {
