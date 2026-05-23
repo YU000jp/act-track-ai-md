@@ -1023,8 +1023,19 @@ pub fn set_settings(
     state: State<'_, Arc<AppState>>,
 ) -> AppResult<()> {
     persist_settings_snapshot_fields(&state, &input.settings)?;
-    let classification_rules_json =
-        sync_classification_rules_from_json(&state, &input.settings.classification_rules_json)?;
+    {
+        let datastores = state
+            .datastores
+            .lock()
+            .map_err(|error| lock_error("set_settings", "lock datastores for settings save", error))?;
+        datastores.set_setting("classificationRulesJson", &input.settings.classification_rules_json)?;
+    }
+
+    let mut classification_rules_json = input.settings.classification_rules_json.clone();
+    if should_sync_classification_rules_json(&classification_rules_json) {
+        classification_rules_json =
+            sync_classification_rules_from_json(&state, &classification_rules_json)?;
+    }
 
     let mut updated_settings = state.settings_snapshot();
     apply_settings_update_snapshot(&mut updated_settings, &input.settings);
@@ -1459,14 +1470,19 @@ fn apply_setting_change(
     value: &str,
 ) -> AppResult<()> {
     if key == "geminiApiKey" {
+        let gemini_api_key = value.trim();
+        if gemini_api_key.is_empty() {
+            return Ok(());
+        }
+
         let saved = save_gemini_api_key_and_release_prompt_lock(
             "set_setting",
             state.as_ref(),
             &SystemGeminiKeyStore,
-            value,
+            gemini_api_key,
         )?;
         if saved {
-            state.set_gemini_api_key(Some(value.trim().to_string()));
+            state.set_gemini_api_key(Some(gemini_api_key.to_string()));
         }
         return Ok(());
     }
@@ -1478,8 +1494,20 @@ fn apply_setting_change(
     }
 
     if key == "classificationRulesJson" {
-        let canonical_rules_json = sync_classification_rules_from_json(state, value)?;
-        state.update_setting_snapshot(key, &canonical_rules_json);
+        {
+            let datastores = state.datastores.lock().map_err(|error| {
+                lock_error("set_setting", "lock datastores for setting update", error)
+            })?;
+            datastores.set_setting(key, value)?;
+        }
+
+        state.update_setting_snapshot(key, value);
+
+        if should_sync_classification_rules_json(value) {
+            let canonical_rules_json = sync_classification_rules_from_json(state, value)?;
+            state.update_setting_snapshot(key, &canonical_rules_json);
+        }
+
         return Ok(());
     }
 
@@ -1517,6 +1545,27 @@ fn sync_classification_rules_from_json(
     persist_classification_rules_json(state, &classification_rules_json, "set_setting")?;
     state.replace_classification_rules(records);
     Ok(classification_rules_json)
+}
+
+fn should_sync_classification_rules_json(raw_rules: &str) -> bool {
+    let trimmed = raw_rules.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return false;
+    };
+
+    let Some(items) = parsed.as_array() else {
+        return false;
+    };
+
+    if items.is_empty() {
+        return true;
+    }
+
+    !parse_classification_rules(Some(trimmed)).is_empty()
 }
 
 fn refresh_classification_rules_projection(
@@ -2221,5 +2270,17 @@ mod tests {
         assert_eq!(payloads.len(), 1);
         assert_eq!(payloads[0].date, failure.date);
         assert_eq!(payloads[0].error.to_string(), failure.error.to_string());
+    }
+
+    #[test]
+    fn classification_rules_json_sync_requires_a_valid_rules_array() {
+        assert!(should_sync_classification_rules_json(
+            r#"[{"processNamePattern":"code","windowTitlePattern":"","category":"productive","label":"Coding","enabled":true,"scope":"process"}]"#
+        ));
+        assert!(should_sync_classification_rules_json("[]"));
+        assert!(!should_sync_classification_rules_json("["));
+        assert!(!should_sync_classification_rules_json(
+            r#"[{"processNamePattern":"code"}]"#
+        ));
     }
 }

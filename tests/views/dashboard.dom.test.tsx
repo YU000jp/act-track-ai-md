@@ -10,6 +10,7 @@ import {
 } from "../../src/frontend/dashboard/helpers";
 import type { DashboardClient } from "../../src/frontend/dashboard/tauri-bridge";
 import { useDashboardController } from "../../src/frontend/dashboard/useDashboardController";
+import { useSettingsController } from "../../src/frontend/dashboard/useSettingsController";
 import { useSummaryController } from "../../src/frontend/dashboard/useSummaryController";
 import { DEFAULT_SETTINGS, type ActivityLogEntry, type ActivityLogQuery, type ActivitySample, type AppSettings, type BrowserVisit, type ClassificationRuleRecord, type DailySummary, type DashboardBootstrapSnapshot, type MarkdownExportFailure, type MemoryRecord, type MemorySnapshot, type MemoryStatus, type TrackingStatus } from "../../src/shared/types";
 
@@ -383,6 +384,53 @@ describe("dashboard helpers", () => {
   });
 });
 
+describe("settings controller", () => {
+  it("debounces persistence for raw settings and secret inputs", async () => {
+    vi.useFakeTimers();
+    try {
+      const rpc = createDashboardRpcStub();
+      const reportError = vi.fn();
+      const pushToast = vi.fn();
+      let disposeRoot: (() => void) | undefined;
+
+      const controller = createRoot((dispose) => {
+        disposeRoot = dispose;
+        return useSettingsController({
+          rpc,
+          reportError,
+          pushToast,
+        });
+      });
+
+      controller.onSettingChange("classificationRulesJson", "[{\"processNamePattern\":\"code\"}]");
+      controller.setGeminiApiKey("  secret-key  ");
+
+      await vi.advanceTimersByTimeAsync(599);
+      expect(rpc.setSetting).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2);
+      expect(rpc.setSetting).toHaveBeenCalledWith({
+        key: "classificationRulesJson",
+        value: "[{\"processNamePattern\":\"code\"}]",
+      });
+      expect(rpc.setSetting).not.toHaveBeenCalledWith({
+        key: "geminiApiKey",
+        value: "secret-key",
+      });
+
+      await vi.advanceTimersByTimeAsync(201);
+      expect(rpc.setSetting).toHaveBeenCalledWith({
+        key: "geminiApiKey",
+        value: "secret-key",
+      });
+
+      disposeRoot?.();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("dashboard shell", () => {
   it("starts as an empty mount shell", () => {
     const html = readFileSync(dashboardIndexPath, "utf8");
@@ -453,6 +501,19 @@ describe("dashboard shell", () => {
     expect(controller.classification.titleScopeSuggestion()).toBe(null);
     controller.classification.updateDraft("windowTitlePattern", "GitHub");
     expect(controller.classification.titleScopeSuggestion()).toBe("both");
+
+    controller.onSettingChange("summaryLanguage", "English");
+    await flushPromises();
+    expect(rpc.setSetting).toHaveBeenCalledWith({
+      key: "summaryLanguage",
+      value: "English",
+    });
+    controller.onSettingChange("classificationRulesJson", "[]");
+    await flushPromises();
+    expect(rpc.setSetting).not.toHaveBeenCalledWith({
+      key: "classificationRulesJson",
+      value: "[]",
+    });
 
     await controller.classification.duplicateRule(controller.classification.rules()[0] as ClassificationRuleRecord);
     expect(rpc.saveClassificationRule).toHaveBeenCalledTimes(1);

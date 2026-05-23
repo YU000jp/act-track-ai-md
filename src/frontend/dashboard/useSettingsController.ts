@@ -1,8 +1,11 @@
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { DEFAULT_SETTINGS, type AppSettings, type AppSettingsUpdate } from "../../shared/types";
 import type { DashboardClient } from "./tauri-bridge";
 import { getRestartRequiredKeys } from "./helpers";
 import type { DashboardToast } from "./types";
+
+const CLASSIFICATION_RULES_JSON_SAVE_DELAY_MS = 600;
+const GEMINI_API_KEY_SAVE_DELAY_MS = 800;
 
 type UseSettingsControllerProps = {
   rpc: DashboardClient;
@@ -24,20 +27,41 @@ export type SettingsController = {
 export function useSettingsController(props: UseSettingsControllerProps): SettingsController {
   const [settings, setSettings] = createSignal<AppSettings>(DEFAULT_SETTINGS);
   const [baselineSettings, setBaselineSettings] = createSignal<AppSettings>(DEFAULT_SETTINGS);
-  const [geminiApiKey, setGeminiApiKey] = createSignal("");
+  const [geminiApiKey, setGeminiApiKeyState] = createSignal("");
   const [settingsFeedback, setSettingsFeedback] = createSignal("");
+  const pendingPersistTimers = new Map<string, number>();
+  let disposed = false;
+
+  onCleanup(() => {
+    clearPendingPersistence();
+    disposed = true;
+  });
 
   function onSettingChange<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     setSettings((current) => ({
       ...current,
       [key]: value,
     }));
+
+    if (key === "classificationRulesJson") {
+      schedulePersist("classificationRulesJson", value as string, CLASSIFICATION_RULES_JSON_SAVE_DELAY_MS);
+      return;
+    }
+
+    void props.rpc
+      .setSetting({ key, value: serializeSettingValue(key, value) })
+      .catch((error) => {
+        if (!disposed) {
+          props.reportError(`Failed to save ${String(key)}`, error);
+        }
+      });
   }
 
   function hydrateSettings(nextSettings: AppSettings): void {
+    clearPendingPersistence();
     setSettings({ ...nextSettings });
     setBaselineSettings({ ...nextSettings });
-    setGeminiApiKey("");
+    setGeminiApiKeyState("");
     setSettingsFeedback("");
   }
 
@@ -47,6 +71,7 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
     try {
       const currentSettings = settings();
       const geminiKey = geminiApiKey().trim();
+      clearPendingPersistence();
       const settingsToSave: AppSettingsUpdate = {
         dashboardBootstrapTimeoutMs: currentSettings.dashboardBootstrapTimeoutMs,
         pollIntervalMs: currentSettings.pollIntervalMs,
@@ -104,4 +129,60 @@ export function useSettingsController(props: UseSettingsControllerProps): Settin
     hydrateSettings,
     saveSettings,
   };
+
+  function clearPendingPersistence(): void {
+    for (const timerId of pendingPersistTimers.values()) {
+      window.clearTimeout(timerId);
+    }
+    pendingPersistTimers.clear();
+  }
+
+  function schedulePersist(key: string, value: string, delayMs: number): void {
+    const existingTimer = pendingPersistTimers.get(key);
+    if (existingTimer !== undefined) {
+      window.clearTimeout(existingTimer);
+    }
+
+    const timerId = window.setTimeout(() => {
+      pendingPersistTimers.delete(key);
+
+      void props.rpc
+        .setSetting({ key, value })
+        .catch((error) => {
+          if (!disposed) {
+            props.reportError(`Failed to save ${key}`, error);
+          }
+        });
+    }, delayMs);
+
+    pendingPersistTimers.set(key, timerId);
+  }
+
+  function setGeminiApiKey(value: string): void {
+    setGeminiApiKeyState(value);
+
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      const pendingTimer = pendingPersistTimers.get("geminiApiKey");
+      if (pendingTimer !== undefined) {
+        window.clearTimeout(pendingTimer);
+        pendingPersistTimers.delete("geminiApiKey");
+      }
+      return;
+    }
+
+    schedulePersist("geminiApiKey", trimmed, GEMINI_API_KEY_SAVE_DELAY_MS);
+  }
+}
+
+function serializeSettingValue<K extends keyof AppSettings>(key: K, value: AppSettings[K]): string {
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+      return String(value);
+    default:
+      // String-valued settings can be written as-is; classificationRulesJson is intentionally
+      // excluded from immediate persistence because partial JSON edits should not rewrite rules.
+      return value as string;
+  }
 }
