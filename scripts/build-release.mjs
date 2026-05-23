@@ -6,11 +6,23 @@ import { spawnSync } from "node:child_process";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const releaseAssetsDir = resolve(repoRoot, "release-assets");
-// Keep release artifact discovery aligned with Cargo's target directory when it is overridden.
-const cargoTargetDir = process.env.CARGO_TARGET_DIR
-  ? resolve(process.env.CARGO_TARGET_DIR)
-  : resolve(repoRoot, "src-tauri", "target");
-const tauriBundleRoot = resolve(cargoTargetDir, "release", "bundle");
+// Cargo can place Tauri output under the workspace target or a custom target dir.
+const cargoTargetDirs = [
+  process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : null,
+  resolve(repoRoot, "target"),
+  resolve(repoRoot, "src-tauri", "target"),
+].filter(Boolean);
+
+function getExistingBundleRoot() {
+  for (const cargoTargetDir of cargoTargetDirs) {
+    const bundleRoot = resolve(cargoTargetDir, "release", "bundle");
+    if (existsSync(bundleRoot)) {
+      return bundleRoot;
+    }
+  }
+
+  return null;
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -26,8 +38,10 @@ function run(command, args) {
 }
 
 function collectReleaseArtifacts() {
-  if (!existsSync(tauriBundleRoot)) {
-    throw new Error(`Release bundle directory was not found: ${tauriBundleRoot}`);
+  const tauriBundleRoot = getExistingBundleRoot();
+  if (!tauriBundleRoot) {
+    const searched = cargoTargetDirs.map((dir) => resolve(dir, "release", "bundle")).join(", ");
+    throw new Error(`Release bundle directory was not found. Checked: ${searched}`);
   }
 
   if (existsSync(releaseAssetsDir)) {
